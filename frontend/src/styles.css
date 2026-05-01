@@ -1,0 +1,97 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "Noto Sans TC", sans-serif;
+  background: #f4f6f8;
+  color: #222;
+}
+
+.page {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.card {
+  background: white;
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 16px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.headerRow,
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+}
+
+.grid {
+  display: grid;
+  gap: 10px;
+}
+
+input,
+select,
+button {
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid #c5c9d3;
+}
+
+button {
+  cursor: pointer;
+  background: #1c64f2;
+  color: white;
+  border: none;
+}
+
+button.link {
+  background: transparent;
+  color: #1c64f2;
+  padding: 0;
+}
+
+.tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.tabs button {
+  background: #9ca3af;
+}
+
+.tabs button.active {
+  background: #1c64f2;
+}
+
+.message {
+  background: #fff4ce;
+  padding: 10px;
+  border-radius: 8px;
+}
+
+.alert {
+  background: #fde2e2;
+  color: #9b1c1c;
+  padding: 12px;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.orderItem {
+  border-top: 1px solid #eceef2;
+  padding-top: 8px;
+  margin-top: 8px;
+}
+
+.hint {
+  color: #6b7280;
+  font-size: 14px;
+}
