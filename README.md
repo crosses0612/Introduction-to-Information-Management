@@ -12,15 +12,16 @@
 
 - Frontend: React + Vite
 - Backend: Node.js + Express
-- Database: SQLite（`better-sqlite3`）
+- Database: Neon（PostgreSQL）
 - Auth: JWT
 
 ## 專案結構
 
 ```text
 .
-├─ frontend/          # React 前端
-├─ backend/           # Express API 與 SQLite 初始化腳本
+├─ frontend/                    # React 前端
+├─ backend/                     # Express API
+├─ db/migrations/               # PostgreSQL schema（套用至 Neon）
 └─ 資訊管理導論-系統架構.md
 ```
 
@@ -28,6 +29,35 @@
 
 - Node.js 18+（建議 Node.js 20）
 - npm 9+
+- [Neon](https://neon.tech) 帳號與專案
+
+## Neon 專案設定
+
+### 1) 建立 Neon 專案
+
+1. 登入 [neon.tech](https://neon.tech) 並建立新專案。
+2. 等待資料庫佈建完成。
+
+### 2) 取得資料庫連線字串
+
+於 Neon Console **Connection details**：
+
+- 選擇 **Pooled connection**（建議 Node.js 後端使用）。
+- 複製連線 URI，確認包含 `?sslmode=require`。
+
+### 3) 套用資料表 schema
+
+1. 開啟 Neon 專案 → **SQL Editor**。
+2. 複製 [`db/migrations/20260520000000_initial_schema.sql`](db/migrations/20260520000000_initial_schema.sql) 全文並執行。
+
+### 4) 設定後端環境變數
+
+```bash
+cd backend
+cp .env.example .env
+```
+
+編輯 `.env`，填入 `DATABASE_URL` 與 `JWT_SECRET` 等值。
 
 ## 安裝步驟
 
@@ -38,14 +68,16 @@ cd backend
 npm install
 ```
 
-### 2) 初始化資料庫與種子資料
+### 2) 寫入種子資料
+
+確認 schema 已套用後：
 
 ```bash
 cd backend
 npm run init-db
 ```
 
-會建立 `backend/data/app.db`，並預設建立測試帳號、商品與原料資料。
+會建立測試帳號、商品與原料資料（若已存在則跳過）。
 
 ### 3) 安裝前端套件
 
@@ -97,6 +129,7 @@ npm run dev
 
 後端可透過環境變數調整：
 
+- `DATABASE_URL`：Neon PostgreSQL 連線字串（必填，建議 Pooled + `sslmode=require`）
 - `PORT`：API 連接埠（預設 `4000`）
 - `JWT_SECRET`：JWT 簽章密鑰
 - `PENDING_ALERT_THRESHOLD`：訂單過量門檻（預設 `5`）
@@ -105,11 +138,11 @@ npm run dev
 
 - `VITE_API_BASE`（預設 `http://localhost:4000/api`）
 
-## 驗證過的指令
+## 驗證清單
 
-已在本機執行：
+schema 與種子資料就緒後，可確認：
 
-- `backend/npm install`
-- `backend/npm run init-db`
-- `frontend/npm install`
-- `frontend/npm run build`
+- `GET /api/health` 回傳 `{ "ok": true }`
+- 廠商/客戶登入成功
+- 商品列表含 recipe JSON
+- 客戶下單、廠商確認、reminders、stats、pending-alert 正常

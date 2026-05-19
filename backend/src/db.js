@@ -1,20 +1,32 @@
-import Database from "better-sqlite3";
-import fs from "node:fs";
-import path from "node:path";
-import { fileURLToPath } from "node:url";
+import pg from "pg";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const dataDir = path.resolve(__dirname, "../data");
+const { Pool } = pg;
 
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+if (!process.env.DATABASE_URL) {
+  console.error("DATABASE_URL is required. Copy backend/.env.example to backend/.env and set your Neon connection string.");
+  process.exit(1);
 }
 
-const dbPath = path.resolve(dataDir, "app.db");
-const db = new Database(dbPath);
+export const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+  ssl: { rejectUnauthorized: false }
+});
 
-db.pragma("journal_mode = WAL");
-db.pragma("foreign_keys = ON");
+export async function query(text, params) {
+  return pool.query(text, params);
+}
 
-export default db;
+export async function withTransaction(fn) {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}

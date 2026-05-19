@@ -2,11 +2,8 @@ import "dotenv/config";
 import bcrypt from "bcryptjs";
 import cors from "cors";
 import express from "express";
-import db from "./db.js";
+import { query, withTransaction } from "./db.js";
 import { requireAuth, requireRole, signToken } from "./auth.js";
-import { initDatabase } from "./initDb.js";
-
-initDatabase();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -15,39 +12,46 @@ const PENDING_ALERT_THRESHOLD = Number(process.env.PENDING_ALERT_THRESHOLD || 5)
 app.use(cors());
 app.use(express.json());
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true });
+app.get("/api/health", async (_req, res) => {
+  try {
+    await query("SELECT 1");
+    res.json({ ok: true });
+  } catch {
+    res.status(503).json({ ok: false });
+  }
 });
 
-app.post("/api/auth/register", (req, res) => {
+app.post("/api/auth/register", async (req, res) => {
   const { name, email, password } = req.body;
   if (!name || !email || !password) {
     return res.status(400).json({ message: "name, email, password are required" });
   }
 
-  const existing = db.prepare("SELECT id FROM users WHERE email = ?").get(email);
-  if (existing) {
+  const existing = await query("SELECT id FROM users WHERE email = $1", [email]);
+  if (existing.rows.length > 0) {
     return res.status(409).json({ message: "Email already exists" });
   }
 
-  const stmt = db.prepare(
-    "INSERT INTO users (name, email, password_hash, role) VALUES (?, ?, ?, 'customer')"
+  const result = await query(
+    "INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, 'customer') RETURNING id, name, email, role",
+    [name, email, bcrypt.hashSync(password, 10)]
   );
-  const result = stmt.run(name, email, bcrypt.hashSync(password, 10));
-  const user = db.prepare("SELECT id, name, email, role FROM users WHERE id = ?").get(result.lastInsertRowid);
+  const user = result.rows[0];
 
   return res.status(201).json({ token: signToken(user), user });
 });
 
-app.post("/api/auth/login", (req, res) => {
+app.post("/api/auth/login", async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
     return res.status(400).json({ message: "email and password are required" });
   }
 
-  const user = db
-    .prepare("SELECT id, name, email, role, password_hash FROM users WHERE email = ?")
-    .get(email);
+  const result = await query(
+    "SELECT id, name, email, role, password_hash FROM users WHERE email = $1",
+    [email]
+  );
+  const user = result.rows[0];
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     return res.status(401).json({ message: "Invalid credentials" });
   }
@@ -56,214 +60,209 @@ app.post("/api/auth/login", (req, res) => {
   return res.json({ token: signToken(safeUser), user: safeUser });
 });
 
-app.get("/api/products", (_req, res) => {
-  const products = db
-    .prepare(
-      `SELECT p.id, p.name, p.description, p.price, p.is_active,
-              COALESCE(
-                json_group_array(
-                  CASE WHEN m.id IS NOT NULL THEN
-                    json_object('materialId', m.id, 'materialName', m.name, 'ratio', pm.ratio)
-                  END
-                ),
-                json('[]')
-              ) AS recipe
-       FROM products p
-       LEFT JOIN product_materials pm ON pm.product_id = p.id
-       LEFT JOIN materials m ON m.id = pm.material_id
-       GROUP BY p.id
-       ORDER BY p.id DESC`
-    )
-    .all()
-    .map((p) => ({
-      ...p,
-      recipe: JSON.parse(p.recipe).filter(Boolean)
-    }));
+app.get("/api/products", async (_req, res) => {
+  const result = await query(
+    `SELECT p.id, p.name, p.description, p.price, p.is_active,
+            COALESCE(
+              json_agg(
+                json_build_object('materialId', m.id, 'materialName', m.name, 'ratio', pm.ratio)
+                ORDER BY pm.id
+              ) FILTER (WHERE m.id IS NOT NULL),
+              '[]'::json
+            ) AS recipe
+     FROM products p
+     LEFT JOIN product_materials pm ON pm.product_id = p.id
+     LEFT JOIN materials m ON m.id = pm.material_id
+     GROUP BY p.id
+     ORDER BY p.id DESC`
+  );
+
+  const products = result.rows.map((p) => ({
+    ...p,
+    recipe: typeof p.recipe === "string" ? JSON.parse(p.recipe) : p.recipe || []
+  }));
 
   return res.json(products);
 });
 
-app.post("/api/products", requireAuth, requireRole("vendor"), (req, res) => {
+app.post("/api/products", requireAuth, requireRole("vendor"), async (req, res) => {
   const { name, description = "", price = 0, isActive = true } = req.body;
   if (!name) {
     return res.status(400).json({ message: "name is required" });
   }
-  const result = db
-    .prepare("INSERT INTO products (name, description, price, is_active) VALUES (?, ?, ?, ?)")
-    .run(name, description, price, isActive ? 1 : 0);
-  const created = db.prepare("SELECT * FROM products WHERE id = ?").get(result.lastInsertRowid);
-  return res.status(201).json(created);
-});
-
-app.put("/api/products/:id", requireAuth, requireRole("vendor"), (req, res) => {
-  const { name, description = "", price = 0, isActive = true } = req.body;
-  db.prepare("UPDATE products SET name = ?, description = ?, price = ?, is_active = ? WHERE id = ?").run(
-    name,
-    description,
-    price,
-    isActive ? 1 : 0,
-    req.params.id
+  const result = await query(
+    "INSERT INTO products (name, description, price, is_active) VALUES ($1, $2, $3, $4) RETURNING *",
+    [name, description, price, isActive]
   );
-  const updated = db.prepare("SELECT * FROM products WHERE id = ?").get(req.params.id);
-  return res.json(updated);
+  return res.status(201).json(result.rows[0]);
 });
 
-app.delete("/api/products/:id", requireAuth, requireRole("vendor"), (req, res) => {
-  db.prepare("DELETE FROM products WHERE id = ?").run(req.params.id);
+app.put("/api/products/:id", requireAuth, requireRole("vendor"), async (req, res) => {
+  const { name, description = "", price = 0, isActive = true } = req.body;
+  const result = await query(
+    "UPDATE products SET name = $1, description = $2, price = $3, is_active = $4 WHERE id = $5 RETURNING *",
+    [name, description, price, isActive, req.params.id]
+  );
+  return res.json(result.rows[0]);
+});
+
+app.delete("/api/products/:id", requireAuth, requireRole("vendor"), async (req, res) => {
+  await query("DELETE FROM products WHERE id = $1", [req.params.id]);
   return res.status(204).send();
 });
 
-app.put("/api/products/:id/recipe", requireAuth, requireRole("vendor"), (req, res) => {
+app.put("/api/products/:id/recipe", requireAuth, requireRole("vendor"), async (req, res) => {
   const { recipe } = req.body;
   if (!Array.isArray(recipe)) {
     return res.status(400).json({ message: "recipe must be an array" });
   }
 
-  const tx = db.transaction(() => {
-    db.prepare("DELETE FROM product_materials WHERE product_id = ?").run(req.params.id);
-    const insert = db.prepare(
-      "INSERT INTO product_materials (product_id, material_id, ratio) VALUES (?, ?, ?)"
-    );
+  await withTransaction(async (client) => {
+    await client.query("DELETE FROM product_materials WHERE product_id = $1", [req.params.id]);
     for (const item of recipe) {
       if (!item.materialId || item.ratio == null) continue;
-      insert.run(req.params.id, item.materialId, item.ratio);
+      await client.query(
+        "INSERT INTO product_materials (product_id, material_id, ratio) VALUES ($1, $2, $3)",
+        [req.params.id, item.materialId, item.ratio]
+      );
     }
   });
-  tx();
+
   return res.json({ ok: true });
 });
 
-app.get("/api/materials", requireAuth, requireRole("vendor"), (_req, res) => {
-  const materials = db.prepare("SELECT * FROM materials ORDER BY id DESC").all();
-  return res.json(materials);
+app.get("/api/materials", requireAuth, requireRole("vendor"), async (_req, res) => {
+  const result = await query("SELECT * FROM materials ORDER BY id DESC");
+  return res.json(result.rows);
 });
 
-app.post("/api/materials", requireAuth, requireRole("vendor"), (req, res) => {
+app.post("/api/materials", requireAuth, requireRole("vendor"), async (req, res) => {
   const { name, stock = 0, unit = "kg" } = req.body;
-  const result = db
-    .prepare("INSERT INTO materials (name, stock, unit) VALUES (?, ?, ?)")
-    .run(name, stock, unit);
-  const created = db.prepare("SELECT * FROM materials WHERE id = ?").get(result.lastInsertRowid);
-  return res.status(201).json(created);
-});
-
-app.put("/api/materials/:id", requireAuth, requireRole("vendor"), (req, res) => {
-  const { name, stock, unit } = req.body;
-  db.prepare("UPDATE materials SET name = ?, stock = ?, unit = ? WHERE id = ?").run(
-    name,
-    stock,
-    unit,
-    req.params.id
+  const result = await query(
+    "INSERT INTO materials (name, stock, unit) VALUES ($1, $2, $3) RETURNING *",
+    [name, stock, unit]
   );
-  const updated = db.prepare("SELECT * FROM materials WHERE id = ?").get(req.params.id);
-  return res.json(updated);
+  return res.status(201).json(result.rows[0]);
 });
 
-app.delete("/api/materials/:id", requireAuth, requireRole("vendor"), (req, res) => {
-  db.prepare("DELETE FROM materials WHERE id = ?").run(req.params.id);
+app.put("/api/materials/:id", requireAuth, requireRole("vendor"), async (req, res) => {
+  const { name, stock, unit } = req.body;
+  const result = await query(
+    "UPDATE materials SET name = $1, stock = $2, unit = $3 WHERE id = $4 RETURNING *",
+    [name, stock, unit, req.params.id]
+  );
+  return res.json(result.rows[0]);
+});
+
+app.delete("/api/materials/:id", requireAuth, requireRole("vendor"), async (req, res) => {
+  await query("DELETE FROM materials WHERE id = $1", [req.params.id]);
   return res.status(204).send();
 });
 
-app.post("/api/orders", requireAuth, requireRole("customer"), (req, res) => {
+app.post("/api/orders", requireAuth, requireRole("customer"), async (req, res) => {
   const { deliveryDate, items } = req.body;
   if (!deliveryDate || !Array.isArray(items) || items.length === 0) {
     return res.status(400).json({ message: "deliveryDate and items are required" });
   }
 
-  const tx = db.transaction(() => {
-    const orderResult = db
-      .prepare("INSERT INTO orders (user_id, delivery_date, status) VALUES (?, ?, 'pending')")
-      .run(req.user.sub, deliveryDate);
-    const insertItem = db.prepare(
-      "INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (?, ?, ?, ?)"
-    );
-    const getProduct = db.prepare("SELECT id, price FROM products WHERE id = ? AND is_active = 1");
-
-    for (const item of items) {
-      const product = getProduct.get(item.productId);
-      if (!product) throw new Error("Product not found");
-      insertItem.run(orderResult.lastInsertRowid, product.id, item.quantity, product.price);
-    }
-    return orderResult.lastInsertRowid;
-  });
-
   try {
-    const orderId = tx();
-    const created = db.prepare("SELECT * FROM orders WHERE id = ?").get(orderId);
-    return res.status(201).json(created);
+    const orderId = await withTransaction(async (client) => {
+      const orderResult = await client.query(
+        "INSERT INTO orders (user_id, delivery_date, status) VALUES ($1, $2, 'pending') RETURNING id",
+        [req.user.sub, deliveryDate]
+      );
+      const id = orderResult.rows[0].id;
+
+      for (const item of items) {
+        const productResult = await client.query(
+          "SELECT id, price FROM products WHERE id = $1 AND is_active = TRUE",
+          [item.productId]
+        );
+        const product = productResult.rows[0];
+        if (!product) throw new Error("Product not found");
+        await client.query(
+          "INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES ($1, $2, $3, $4)",
+          [id, product.id, item.quantity, product.price]
+        );
+      }
+      return id;
+    });
+
+    const created = await query("SELECT * FROM orders WHERE id = $1", [orderId]);
+    return res.status(201).json(created.rows[0]);
   } catch (error) {
     return res.status(400).json({ message: error.message });
   }
 });
 
-app.get("/api/orders/my", requireAuth, requireRole("customer"), (req, res) => {
-  const orders = db
-    .prepare(
-      `SELECT o.*,
-              COALESCE(
-                json_group_array(
-                  json_object(
-                    'productId', oi.product_id,
-                    'productName', p.name,
-                    'quantity', oi.quantity,
-                    'unitPrice', oi.unit_price
-                  )
-                ),
-                json('[]')
-              ) AS items
-       FROM orders o
-       LEFT JOIN order_items oi ON oi.order_id = o.id
-       LEFT JOIN products p ON p.id = oi.product_id
-       WHERE o.user_id = ?
-       GROUP BY o.id
-       ORDER BY o.id DESC`
-    )
-    .all(req.user.sub)
-    .map((o) => ({ ...o, items: JSON.parse(o.items).filter(Boolean) }));
-  return res.json(orders);
-});
-
-app.get("/api/orders", requireAuth, requireRole("vendor"), (_req, res) => {
-  const orders = db
-    .prepare(
-      `SELECT o.id, o.delivery_date, o.status, o.created_at, o.confirmed_at,
-              u.name AS customer_name, u.email AS customer_email,
-              COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS total_amount
-       FROM orders o
-       JOIN users u ON u.id = o.user_id
-       LEFT JOIN order_items oi ON oi.order_id = o.id
-       GROUP BY o.id
-       ORDER BY o.id DESC`
-    )
-    .all();
-  return res.json(orders);
-});
-
-app.put("/api/orders/:id/confirm", requireAuth, requireRole("vendor"), (req, res) => {
-  db.prepare("UPDATE orders SET status = 'confirmed', confirmed_at = datetime('now') WHERE id = ?").run(
-    req.params.id
+app.get("/api/orders/my", requireAuth, requireRole("customer"), async (req, res) => {
+  const result = await query(
+    `SELECT o.*,
+            COALESCE(
+              json_agg(
+                json_build_object(
+                  'productId', oi.product_id,
+                  'productName', p.name,
+                  'quantity', oi.quantity,
+                  'unitPrice', oi.unit_price
+                )
+                ORDER BY oi.id
+              ) FILTER (WHERE oi.id IS NOT NULL),
+              '[]'::json
+            ) AS items
+     FROM orders o
+     LEFT JOIN order_items oi ON oi.order_id = o.id
+     LEFT JOIN products p ON p.id = oi.product_id
+     WHERE o.user_id = $1
+     GROUP BY o.id
+     ORDER BY o.id DESC`,
+    [req.user.sub]
   );
-  const order = db.prepare("SELECT * FROM orders WHERE id = ?").get(req.params.id);
-  return res.json(order);
+
+  const orders = result.rows.map((o) => ({
+    ...o,
+    items: typeof o.items === "string" ? JSON.parse(o.items) : o.items || []
+  }));
+  return res.json(orders);
 });
 
-app.get("/api/reminders", requireAuth, requireRole("customer"), (req, res) => {
-  const reminders = db
-    .prepare(
-      `SELECT id, delivery_date, status
-       FROM orders
-       WHERE user_id = ? AND status = 'confirmed' AND date(delivery_date) >= date('now')
-       ORDER BY date(delivery_date) ASC
-       LIMIT 5`
-    )
-    .all(req.user.sub);
-  return res.json(reminders);
+app.get("/api/orders", requireAuth, requireRole("vendor"), async (_req, res) => {
+  const result = await query(
+    `SELECT o.id, o.delivery_date, o.status, o.created_at, o.confirmed_at,
+            u.name AS customer_name, u.email AS customer_email,
+            COALESCE(SUM(oi.quantity * oi.unit_price), 0) AS total_amount
+     FROM orders o
+     JOIN users u ON u.id = o.user_id
+     LEFT JOIN order_items oi ON oi.order_id = o.id
+     GROUP BY o.id, u.name, u.email
+     ORDER BY o.id DESC`
+  );
+  return res.json(result.rows);
 });
 
-app.get("/api/orders/pending-alert", requireAuth, (_req, res) => {
-  const pendingCount = db
-    .prepare("SELECT COUNT(*) AS count FROM orders WHERE status = 'pending'")
-    .get().count;
+app.put("/api/orders/:id/confirm", requireAuth, requireRole("vendor"), async (req, res) => {
+  const result = await query(
+    "UPDATE orders SET status = 'confirmed', confirmed_at = NOW() WHERE id = $1 RETURNING *",
+    [req.params.id]
+  );
+  return res.json(result.rows[0]);
+});
+
+app.get("/api/reminders", requireAuth, requireRole("customer"), async (req, res) => {
+  const result = await query(
+    `SELECT id, delivery_date, status
+     FROM orders
+     WHERE user_id = $1 AND status = 'confirmed' AND delivery_date >= CURRENT_DATE
+     ORDER BY delivery_date ASC
+     LIMIT 5`,
+    [req.user.sub]
+  );
+  return res.json(result.rows);
+});
+
+app.get("/api/orders/pending-alert", requireAuth, async (_req, res) => {
+  const result = await query("SELECT COUNT(*)::int AS count FROM orders WHERE status = 'pending'");
+  const pendingCount = result.rows[0].count;
   return res.json({
     pendingCount,
     threshold: PENDING_ALERT_THRESHOLD,
@@ -271,36 +270,43 @@ app.get("/api/orders/pending-alert", requireAuth, (_req, res) => {
   });
 });
 
-app.get("/api/stats", requireAuth, requireRole("vendor"), (_req, res) => {
-  const topProducts = db
-    .prepare(
-      `SELECT p.name, SUM(oi.quantity) AS total_qty
-       FROM order_items oi
-       JOIN products p ON p.id = oi.product_id
-       GROUP BY oi.product_id
-       ORDER BY total_qty DESC
-       LIMIT 5`
-    )
-    .all();
+app.get("/api/stats", requireAuth, requireRole("vendor"), async (_req, res) => {
+  const topProductsResult = await query(
+    `SELECT p.name, SUM(oi.quantity)::int AS total_qty
+     FROM order_items oi
+     JOIN products p ON p.id = oi.product_id
+     GROUP BY oi.product_id, p.name
+     ORDER BY total_qty DESC
+     LIMIT 5`
+  );
 
-  const customerFrequency = db
-    .prepare(
-      `SELECT u.name, u.email,
-              COUNT(o.id) AS order_count,
-              ROUND(julianday(MAX(o.created_at)) - julianday(MIN(o.created_at)), 2) AS span_days
-       FROM users u
-       JOIN orders o ON o.user_id = u.id
-       WHERE u.role = 'customer'
-       GROUP BY u.id
-       ORDER BY order_count DESC`
-    )
-    .all()
-    .map((c) => ({
-      ...c,
-      avg_cycle_days: c.order_count > 1 ? Number((c.span_days / (c.order_count - 1)).toFixed(2)) : null
-    }));
+  const customerFrequencyResult = await query(
+    `SELECT u.name, u.email,
+            COUNT(o.id)::int AS order_count,
+            ROUND(
+              EXTRACT(EPOCH FROM (MAX(o.created_at) - MIN(o.created_at))) / 86400,
+              2
+            ) AS span_days
+     FROM users u
+     JOIN orders o ON o.user_id = u.id
+     WHERE u.role = 'customer'
+     GROUP BY u.id, u.name, u.email
+     ORDER BY order_count DESC`
+  );
 
-  return res.json({ topProducts, customerFrequency });
+  const customerFrequency = customerFrequencyResult.rows.map((c) => ({
+    ...c,
+    span_days: c.span_days != null ? Number(c.span_days) : null,
+    avg_cycle_days:
+      c.order_count > 1 && c.span_days != null
+        ? Number((c.span_days / (c.order_count - 1)).toFixed(2))
+        : null
+  }));
+
+  return res.json({
+    topProducts: topProductsResult.rows,
+    customerFrequency
+  });
 });
 
 app.use((error, _req, res, _next) => {
