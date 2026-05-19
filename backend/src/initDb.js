@@ -48,12 +48,12 @@ export async function seedData() {
     const getId = (arr, name) => arr.find((x) => x.name === name)?.id;
 
     const recipes = [
-      [getId(products, "招牌蛋糕"), getId(materials, "麵粉"), 0.6],
+      [getId(products, "招牌蛋糕"), getId(materials, "麵粉"), 0.5],
       [getId(products, "招牌蛋糕"), getId(materials, "奶油"), 0.3],
-      [getId(products, "招牌蛋糕"), getId(materials, "砂糖"), 0.1],
-      [getId(products, "手工餅乾禮盒"), getId(materials, "麵粉"), 0.5],
-      [getId(products, "手工餅乾禮盒"), getId(materials, "奶油"), 0.25],
-      [getId(products, "手工餅乾禮盒"), getId(materials, "砂糖"), 0.25]
+      [getId(products, "招牌蛋糕"), getId(materials, "砂糖"), 0.15],
+      [getId(products, "手工餅乾禮盒"), getId(materials, "麵粉"), 0.4],
+      [getId(products, "手工餅乾禮盒"), getId(materials, "奶油"), 0.2],
+      [getId(products, "手工餅乾禮盒"), getId(materials, "砂糖"), 0.15]
     ];
 
     for (const [productId, materialId, ratio] of recipes) {

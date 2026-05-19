@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
+import { nonNegativeFromInput, nonNegativeStringFromInput } from "./numbers.js";
+
+function formatRecipeLine(r) {
+  const kg = r.usageKg ?? r.ratio;
+  return `${r.materialName} ${kg} kg`;
+}
 
 const emptyProduct = { name: "", description: "", price: 0, isActive: true };
-const emptyMaterial = { name: "", stock: 0, unit: "kg" };
+const emptyMaterial = { name: "", stock: 0, unit: "kg", lowStockThreshold: 10 };
 
 export default function App() {
   const [authMode, setAuthMode] = useState("login");
@@ -25,6 +31,10 @@ export default function App() {
   const [quantities, setQuantities] = useState({});
   const [recipeEditor, setRecipeEditor] = useState({ productId: "", materialId: "", ratio: "" });
   const [activeTab, setActiveTab] = useState("products");
+  const [materialEdits, setMaterialEdits] = useState({});
+  const [inboundForm, setInboundForm] = useState({ materialId: "", quantity: "", note: "" });
+  const [movements, setMovements] = useState([]);
+  const [consumptionStats, setConsumptionStats] = useState([]);
 
   const isVendor = user?.role === "vendor";
   const isCustomer = user?.role === "customer";
@@ -68,6 +78,34 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  useEffect(() => {
+    const edits = {};
+    for (const m of materials) {
+      edits[m.id] = {
+        name: m.name,
+        stock: m.stock,
+        unit: m.unit,
+        low_stock_threshold: m.low_stock_threshold ?? 10
+      };
+    }
+    setMaterialEdits(edits);
+  }, [materials]);
+
+  useEffect(() => {
+    if (!isVendor || activeTab !== "materials") return;
+    Promise.all([api.getMaterialMovements(), api.getMaterialConsumptionStats()])
+      .then(([mov, cons]) => {
+        setMovements(mov);
+        setConsumptionStats(cons);
+      })
+      .catch((err) => setMessage(err.message));
+  }, [isVendor, activeTab, materials]);
+
+  const lowStockMaterials = useMemo(
+    () => materials.filter((m) => m.is_low_stock),
+    [materials]
+  );
+
   async function handleAuthSubmit(e) {
     e.preventDefault();
     try {
@@ -92,6 +130,10 @@ export default function App() {
     setOrders([]);
     setReminders([]);
     setStats({ topProducts: [], customerFrequency: [] });
+    setMaterials([]);
+    setMovements([]);
+    setConsumptionStats([]);
+    setMaterialEdits({});
   }
 
   async function submitOrder(e) {
@@ -123,7 +165,12 @@ export default function App() {
   async function createMaterial(e) {
     e.preventDefault();
     try {
-      await api.createMaterial(materialForm);
+      await api.createMaterial({
+        name: materialForm.name,
+        stock: nonNegativeFromInput(materialForm.stock),
+        unit: materialForm.unit,
+        lowStockThreshold: nonNegativeFromInput(materialForm.lowStockThreshold, 10)
+      });
       setMaterialForm(emptyMaterial);
       await refreshCoreData();
       setMessage("原料已新增");
@@ -135,17 +182,18 @@ export default function App() {
   async function applyRecipe(e) {
     e.preventDefault();
     try {
-      if (!recipeEditor.productId || !recipeEditor.materialId || !recipeEditor.ratio) {
-        throw new Error("請先選擇商品、原料與比例");
+      if (!recipeEditor.productId || !recipeEditor.materialId || recipeEditor.ratio === "") {
+        throw new Error("請先選擇商品、原料與每件用量(kg)");
       }
+      const usageKg = nonNegativeFromInput(recipeEditor.ratio);
       const product = products.find((p) => p.id === Number(recipeEditor.productId));
       const existing = product?.recipe || [];
       const next = [...existing.filter((x) => x.materialId !== Number(recipeEditor.materialId))];
-      next.push({ materialId: Number(recipeEditor.materialId), ratio: Number(recipeEditor.ratio) });
+      next.push({ materialId: Number(recipeEditor.materialId), ratio: usageKg, usageKg });
       await api.updateRecipe(recipeEditor.productId, next);
       setRecipeEditor({ productId: "", materialId: "", ratio: "" });
       await refreshCoreData();
-      setMessage("配方比例已更新");
+      setMessage("配方用量已更新");
     } catch (error) {
       setMessage(error.message);
     }
@@ -153,13 +201,70 @@ export default function App() {
 
   async function confirmOrder(id) {
     try {
-      await api.confirmOrder(id);
+      const result = await api.confirmOrder(id);
       await refreshCoreData();
-      setMessage("訂單已確認，客戶首頁將顯示交貨提醒");
+      let msg = "訂單已確認，客戶首頁將顯示交貨提醒";
+      if (result.lowStockMaterials?.length) {
+        msg += `（低庫存：${result.lowStockMaterials.map((m) => m.name).join("、")}）`;
+      }
+      setMessage(msg);
     } catch (error) {
       setMessage(error.message);
     }
   }
+
+  async function cancelOrder(id) {
+    try {
+      await api.cancelOrder(id);
+      await refreshCoreData();
+      setMessage("訂單已取消");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  async function saveMaterial(id) {
+    const edit = materialEdits[id];
+    if (!edit) return;
+    try {
+      await api.updateMaterial(id, {
+        name: edit.name,
+        stock: nonNegativeFromInput(edit.stock),
+        unit: edit.unit,
+        lowStockThreshold: nonNegativeFromInput(edit.low_stock_threshold, 10)
+      });
+      await refreshCoreData();
+      setMessage("原料已更新");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  async function submitInbound(e) {
+    e.preventDefault();
+    try {
+      if (!inboundForm.materialId || !inboundForm.quantity) {
+        throw new Error("請選擇原料並填寫進貨數量");
+      }
+      const qty = nonNegativeFromInput(inboundForm.quantity);
+      if (qty <= 0) throw new Error("進貨數量必須大於 0");
+      await api.inboundMaterial(inboundForm.materialId, {
+        quantity: qty,
+        note: inboundForm.note
+      });
+      setInboundForm({ materialId: "", quantity: "", note: "" });
+      await refreshCoreData();
+      setMessage("進貨紀錄已新增");
+    } catch (error) {
+      setMessage(error.message);
+    }
+  }
+
+  const movementTypeLabel = {
+    inbound: "進貨",
+    outbound: "出貨",
+    adjustment: "調整"
+  };
 
   async function removeProduct(id) {
     try {
@@ -232,6 +337,12 @@ export default function App() {
             </section>
           )}
 
+          {isVendor && lowStockMaterials.length > 0 && (
+            <section className="alert">
+              原料庫存不足：{lowStockMaterials.map((m) => `${m.name}（${m.stock} ${m.unit}）`).join("、")}
+            </section>
+          )}
+
           {isCustomer && (
             <>
               <section className="card">
@@ -255,7 +366,10 @@ export default function App() {
                           min="0"
                           value={quantities[product.id] || ""}
                           onChange={(e) =>
-                            setQuantities({ ...quantities, [product.id]: Number(e.target.value || 0) })
+                            setQuantities({
+                              ...quantities,
+                              [product.id]: nonNegativeFromInput(e.target.value)
+                            })
                           }
                         />
                       </label>
@@ -281,9 +395,16 @@ export default function App() {
                 <h2>我的訂單紀錄</h2>
                 {orders.map((o) => (
                   <div key={o.id} className="orderItem">
-                    <p>
-                      #{o.id} - {o.status} - 交貨日 {o.delivery_date}
-                    </p>
+                    <div className="row">
+                      <p>
+                        #{o.id} - {o.status} - 交貨日 {o.delivery_date}
+                      </p>
+                      {o.status === "pending" && (
+                        <button type="button" onClick={() => cancelOrder(o.id)}>
+                          取消訂單
+                        </button>
+                      )}
+                    </div>
                     <ul>
                       {o.items.map((item, idx) => (
                         <li key={idx}>
@@ -318,7 +439,7 @@ export default function App() {
 
               {activeTab === "products" && (
                 <section className="card">
-                  <h2>商品管理與配方比例</h2>
+                  <h2>商品管理與配方用量</h2>
                   <form onSubmit={createProduct} className="grid">
                     <input
                       placeholder="商品名稱"
@@ -332,9 +453,13 @@ export default function App() {
                     />
                     <input
                       type="number"
+                      min="0"
+                      step="1"
                       placeholder="價格"
                       value={productForm.price}
-                      onChange={(e) => setProductForm({ ...productForm, price: Number(e.target.value) })}
+                      onChange={(e) =>
+                        setProductForm({ ...productForm, price: nonNegativeFromInput(e.target.value) })
+                      }
                     />
                     <button type="submit">新增商品</button>
                   </form>
@@ -364,12 +489,15 @@ export default function App() {
                     </select>
                     <input
                       type="number"
+                      min="0"
                       step="0.01"
-                      placeholder="比例 (0~1)"
+                      placeholder="每件用量 (kg)"
                       value={recipeEditor.ratio}
-                      onChange={(e) => setRecipeEditor({ ...recipeEditor, ratio: e.target.value })}
+                      onChange={(e) =>
+                        setRecipeEditor({ ...recipeEditor, ratio: nonNegativeStringFromInput(e.target.value) })
+                      }
                     />
-                    <button type="submit">更新配方比例</button>
+                    <button type="submit">更新配方用量</button>
                   </form>
 
                   {products.map((p) => (
@@ -379,7 +507,7 @@ export default function App() {
                         <p>{p.description}</p>
                         <small>
                           配方：
-                          {p.recipe.map((r) => `${r.materialName}:${r.ratio}`).join(" / ") || "尚未設定"}
+                          {p.recipe.map((r) => formatRecipeLine(r)).join(" / ") || "尚未設定"}
                         </small>
                       </div>
                       <button onClick={() => removeProduct(p.id)}>刪除</button>
@@ -399,9 +527,13 @@ export default function App() {
                     />
                     <input
                       type="number"
-                      placeholder="庫存量"
+                      min="0"
+                      step="0.01"
+                      placeholder="庫存量 (kg)"
                       value={materialForm.stock}
-                      onChange={(e) => setMaterialForm({ ...materialForm, stock: Number(e.target.value) })}
+                      onChange={(e) =>
+                        setMaterialForm({ ...materialForm, stock: nonNegativeFromInput(e.target.value) })
+                      }
                     />
                     <input
                       placeholder="單位"
@@ -410,14 +542,148 @@ export default function App() {
                     />
                     <button type="submit">新增原料</button>
                   </form>
-                  {materials.map((m) => (
-                    <div key={m.id} className="row">
-                      <span>
-                        {m.name}: {m.stock} {m.unit}
-                      </span>
-                      <button onClick={() => removeMaterial(m.id)}>刪除</button>
-                    </div>
-                  ))}
+
+                  <div className="subsection">
+                    <h3>原料列表（可編輯庫存）</h3>
+                    {materials.map((m) => {
+                      const edit = materialEdits[m.id] || {};
+                      return (
+                        <div key={m.id} className="materialEditRow">
+                          <input
+                            value={edit.name ?? m.name}
+                            onChange={(e) =>
+                              setMaterialEdits({
+                                ...materialEdits,
+                                [m.id]: { ...edit, name: e.target.value }
+                              })
+                            }
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            title="庫存 (kg)"
+                            value={edit.stock ?? m.stock}
+                            className={m.is_low_stock ? "lowStock" : ""}
+                            onChange={(e) =>
+                              setMaterialEdits({
+                                ...materialEdits,
+                                [m.id]: { ...edit, stock: nonNegativeStringFromInput(e.target.value) }
+                              })
+                            }
+                          />
+                          <input
+                            value={edit.unit ?? m.unit}
+                            title="單位"
+                            onChange={(e) =>
+                              setMaterialEdits({
+                                ...materialEdits,
+                                [m.id]: { ...edit, unit: e.target.value }
+                              })
+                            }
+                          />
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            title="低庫存門檻 (kg)"
+                            value={edit.low_stock_threshold ?? m.low_stock_threshold ?? 10}
+                            onChange={(e) =>
+                              setMaterialEdits({
+                                ...materialEdits,
+                                [m.id]: {
+                                  ...edit,
+                                  low_stock_threshold: nonNegativeStringFromInput(e.target.value)
+                                }
+                              })
+                            }
+                          />
+                          <button type="button" onClick={() => saveMaterial(m.id)}>
+                            儲存
+                          </button>
+                          <button type="button" onClick={() => removeMaterial(m.id)}>
+                            刪除
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <form onSubmit={submitInbound} className="grid subsection">
+                    <h3>進貨登錄</h3>
+                    <select
+                      value={inboundForm.materialId}
+                      onChange={(e) => setInboundForm({ ...inboundForm, materialId: e.target.value })}
+                    >
+                      <option value="">選擇原料</option>
+                      {materials.map((m) => (
+                        <option key={m.id} value={m.id}>
+                          {m.name}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="進貨數量 (kg)"
+                      value={inboundForm.quantity}
+                      onChange={(e) =>
+                        setInboundForm({ ...inboundForm, quantity: nonNegativeStringFromInput(e.target.value) })
+                      }
+                    />
+                    <input
+                      placeholder="備註"
+                      value={inboundForm.note}
+                      onChange={(e) => setInboundForm({ ...inboundForm, note: e.target.value })}
+                    />
+                    <button type="submit">登錄進貨</button>
+                  </form>
+
+                  <div className="subsection">
+                    <h3>原料消耗統計（近 30 天）</h3>
+                    {consumptionStats.length === 0 ? (
+                      <p>尚無消耗紀錄。</p>
+                    ) : (
+                      consumptionStats.map((s) => (
+                        <p key={s.id}>
+                          {s.name}: {s.total_consumed} {s.unit}
+                        </p>
+                      ))
+                    )}
+                  </div>
+
+                  <div className="subsection">
+                    <h3>進出貨紀錄（最近 50 筆）</h3>
+                    {movements.length === 0 ? (
+                      <p>尚無紀錄。</p>
+                    ) : (
+                      <table className="movementTable">
+                        <thead>
+                          <tr>
+                            <th>時間</th>
+                            <th>原料</th>
+                            <th>類型</th>
+                            <th>數量</th>
+                            <th>訂單</th>
+                            <th>備註</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {movements.map((mm) => (
+                            <tr key={mm.id}>
+                              <td>{new Date(mm.created_at).toLocaleString()}</td>
+                              <td>{mm.material_name}</td>
+                              <td>{movementTypeLabel[mm.movement_type] || mm.movement_type}</td>
+                              <td>{mm.quantity}</td>
+                              <td>{mm.order_id ? `#${mm.order_id}` : "-"}</td>
+                              <td>{mm.note || "-"}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
                 </section>
               )}
 
@@ -430,7 +696,14 @@ export default function App() {
                         #{o.id} / {o.customer_name} / {o.status} / 交貨日 {o.delivery_date} / NT$ {o.total_amount}
                       </span>
                       {o.status === "pending" && (
-                        <button onClick={() => confirmOrder(o.id)}>確認接單</button>
+                        <div className="rowActions">
+                          <button type="button" onClick={() => confirmOrder(o.id)}>
+                            確認接單
+                          </button>
+                          <button type="button" onClick={() => cancelOrder(o.id)}>
+                            取消訂單
+                          </button>
+                        </div>
                       )}
                     </div>
                   ))}

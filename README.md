@@ -7,6 +7,9 @@
 - 訂單確認流程（廠商確認後，客戶首頁可看到交貨提醒）
 - 訂單過量提醒（待處理訂單過多時提示等待時間較長）
 - 基本統計（暢銷商品、客戶下單頻率/週期）
+- 廠商確認接單時依配方扣減原料庫存，並記錄進出貨
+- 原料低庫存提醒、進貨登錄、消耗統計
+- 待處理訂單可由客戶或廠商取消
 
 ## 技術棧
 
@@ -48,7 +51,9 @@
 ### 3) 套用資料表 schema
 
 1. 開啟 Neon 專案 → **SQL Editor**。
-2. 複製 [`db/migrations/20260520000000_initial_schema.sql`](db/migrations/20260520000000_initial_schema.sql) 全文並執行。
+2. 依序執行 migration 檔案：
+   - [`db/migrations/20260520000000_initial_schema.sql`](db/migrations/20260520000000_initial_schema.sql)
+   - [`db/migrations/20260521100000_inventory_and_cancel.sql`](db/migrations/20260521100000_inventory_and_cancel.sql)
 
 ### 4) 設定後端環境變數
 
@@ -120,7 +125,11 @@ npm run dev
 - `POST /api/auth/login`：登入
 - `GET /api/products`：取得商品（含配方比例）
 - `POST /api/orders`：客戶建立訂單
-- `PUT /api/orders/:id/confirm`：廠商確認接單
+- `PUT /api/orders/:id/confirm`：廠商確認接單（依配方扣庫，不足時拒絕）
+- `PUT /api/orders/:id/cancel`：取消待處理訂單（客戶/廠商）
+- `GET /api/materials/movements`：進出貨紀錄（廠商）
+- `GET /api/materials/consumption-stats`：原料消耗統計（廠商，近 30 天）
+- `POST /api/materials/:id/inbound`：進貨登錄（廠商）
 - `GET /api/reminders`：客戶交貨日提醒
 - `GET /api/orders/pending-alert`：訂單過量警示
 - `GET /api/stats`：統計數據（廠商）
@@ -133,6 +142,7 @@ npm run dev
 - `PORT`：API 連接埠（預設 `4000`）
 - `JWT_SECRET`：JWT 簽章密鑰
 - `PENDING_ALERT_THRESHOLD`：訂單過量門檻（預設 `5`）
+- `MATERIAL_LOW_STOCK_THRESHOLD`：新原料預設低庫存門檻（預設 `10`）
 
 前端可透過環境變數指定 API 位址：
 
@@ -145,4 +155,4 @@ schema 與種子資料就緒後，可確認：
 - `GET /api/health` 回傳 `{ "ok": true }`
 - 廠商/客戶登入成功
 - 商品列表含 recipe JSON
-- 客戶下單、廠商確認、reminders、stats、pending-alert 正常
+- 客戶下單、廠商確認扣庫、取消 pending 訂單、原料進貨/調整紀錄、低庫存提醒

@@ -41,7 +41,19 @@ export const api = {
   getMyOrders: () => request("/orders/my"),
   getAllOrders: () => request("/orders"),
   confirmOrder: (id) => request(`/orders/${id}/confirm`, { method: "PUT" }),
+  cancelOrder: (id) => request(`/orders/${id}/cancel`, { method: "PUT" }),
   getReminders: () => request("/reminders"),
   getPendingAlert: () => request("/orders/pending-alert"),
-  getStats: () => request("/stats")
+  getStats: () => request("/stats"),
+  getLowStockMaterials: () => request("/materials/low-stock"),
+  inboundMaterial: (id, payload) =>
+    request(`/materials/${id}/inbound`, { method: "POST", body: JSON.stringify(payload) }),
+  getMaterialMovements: (params = {}) => {
+    const q = new URLSearchParams();
+    if (params.materialId) q.set("materialId", params.materialId);
+    if (params.limit) q.set("limit", params.limit);
+    const qs = q.toString();
+    return request(`/materials/movements${qs ? `?${qs}` : ""}`);
+  },
+  getMaterialConsumptionStats: () => request("/materials/consumption-stats")
 };

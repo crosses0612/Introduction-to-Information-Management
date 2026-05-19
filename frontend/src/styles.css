@@ -95,3 +95,41 @@ button.link {
   color: #6b7280;
   font-size: 14px;
 }
+
+.lowStock {
+  color: #9b1c1c;
+  font-weight: 600;
+}
+
+.materialEditRow {
+  display: grid;
+  grid-template-columns: 1fr repeat(3, 80px) auto auto;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.movementTable {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.movementTable th,
+.movementTable td {
+  border-bottom: 1px solid #eceef2;
+  padding: 8px 6px;
+  text-align: left;
+}
+
+.subsection {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #eceef2;
+}
+
+.rowActions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
