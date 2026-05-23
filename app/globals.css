@@ -1,0 +1,462 @@
+/* ===== 基礎設定 ===== */
+:root {
+  --bg: #f4f7f6;
+  --card: #ffffff;
+  --primary: #5f8f87;
+  --primary-dark: #4c756e;
+  --secondary: #d9e7e3;
+  --text: #2f3b39;
+  --subtext: #6b7a78;
+  --border: #dbe4e2;
+  --danger: #d96c6c;
+  --warning: #f3b562;
+  --success: #6dbb8b;
+  --shadow: 0 4px 16px rgba(0, 0, 0, 0.05);
+
+  --radius: 18px;
+  --transition: 0.2s ease;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family:
+    "Noto Sans TC",
+    "Segoe UI",
+    sans-serif;
+  line-height: 1.6;
+}
+
+/* ===== 主頁 ===== */
+
+.page {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 40px 20px 80px;
+}
+
+.page h1 {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 32px;
+  color: var(--primary-dark);
+  letter-spacing: 1px;
+}
+
+/* ===== 卡片 ===== */
+
+.card {
+  background: var(--card);
+  border-radius: var(--radius);
+  padding: 24px;
+  margin-bottom: 24px;
+  box-shadow: var(--shadow);
+  border: 1px solid var(--border);
+  transition: var(--transition);
+}
+
+.card:hover {
+  transform: translateY(-2px);
+}
+
+.card h2 {
+  margin-top: 0;
+  margin-bottom: 20px;
+  color: var(--primary-dark);
+  font-size: 1.3rem;
+}
+
+.card h3 {
+  margin-top: 0;
+  color: var(--primary);
+}
+
+/* ===== Grid ===== */
+
+.grid {
+  display: grid;
+  gap: 16px;
+}
+
+/* ===== 輸入元件 ===== */
+
+input,
+select,
+textarea {
+  width: 100%;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #fcfdfd;
+  font-size: 0.95rem;
+  transition: var(--transition);
+  color: var(--text);
+}
+
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 4px rgba(95, 143, 135, 0.12);
+}
+
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 0.95rem;
+  color: var(--subtext);
+}
+
+/* ===== 按鈕 ===== */
+
+button {
+  border: none;
+  border-radius: 12px;
+  padding: 12px 18px;
+  background: var(--primary);
+  color: white;
+  font-size: 0.95rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: var(--transition);
+}
+
+button:hover {
+  background: var(--primary-dark);
+  transform: translateY(-1px);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+button.link {
+  background: transparent;
+  color: var(--primary);
+  padding: 8px 0;
+  box-shadow: none;
+}
+
+button.link:hover {
+  background: transparent;
+  color: var(--primary-dark);
+}
+
+/* ===== 提示 ===== */
+
+.hint {
+  color: var(--subtext);
+  font-size: 0.88rem;
+  margin-top: 12px;
+}
+
+.message {
+  background: #eef8f3;
+  border-left: 5px solid var(--success);
+  padding: 14px 18px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  color: #2d5c44;
+}
+
+/* ===== Modal ===== */
+
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(47, 59, 57, 0.45);
+}
+
+.modalCard {
+  width: 100%;
+  max-width: 420px;
+  padding: 28px 24px;
+  border-radius: var(--radius);
+  background: var(--card);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
+  text-align: center;
+}
+
+.modalCard h2 {
+  margin-top: 0;
+  margin-bottom: 12px;
+  font-size: 1.25rem;
+}
+
+.modalCard p {
+  margin: 0 0 20px;
+  color: var(--subtext);
+  line-height: 1.5;
+}
+
+.modalSuccess h2 {
+  color: var(--primary-dark);
+}
+
+.modalError h2 {
+  color: var(--danger);
+}
+
+.modalError {
+  border-top: 4px solid var(--danger);
+}
+
+.modalSuccess {
+  border-top: 4px solid var(--success);
+}
+
+/* ===== Alert ===== */
+
+.alert {
+  background: #fff6e9;
+  border-left: 5px solid var(--warning);
+  padding: 16px 18px;
+  border-radius: 14px;
+  margin-bottom: 20px;
+  color: #80541d;
+  box-shadow: var(--shadow);
+}
+
+/* ===== Header ===== */
+
+.headerRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.headerRow p {
+  margin: 0;
+}
+
+/* ===== Row ===== */
+
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.row:last-child {
+  border-bottom: none;
+}
+
+.rowActions {
+  display: flex;
+  gap: 10px;
+}
+
+/* ===== Tabs ===== */
+
+.tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.tabs button {
+  background: #e7efed;
+  color: var(--text);
+}
+
+.tabs button.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* ===== Order ===== */
+
+.orderItem {
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  margin-bottom: 16px;
+  background: #fcfdfd;
+}
+
+.orderItem ul {
+  margin-top: 10px;
+  padding-left: 20px;
+  color: var(--subtext);
+}
+
+/* ===== Recipe Box ===== */
+
+.recipeBox {
+  margin-top: 24px;
+  padding-top: 20px;
+  border-top: 1px dashed var(--border);
+}
+
+/* ===== Shop info & forms ===== */
+
+.shopInfo p {
+  margin: 0.35rem 0;
+}
+
+.radioGroup {
+  border: none;
+  padding: 0;
+  margin: 0;
+}
+
+.radioGroup legend {
+  font-size: 0.95rem;
+  color: var(--subtext);
+  margin-bottom: 8px;
+}
+
+.inlineRadio {
+  flex-direction: row !important;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.subTabs {
+  margin-bottom: 16px;
+}
+
+.subTabs button {
+  font-size: 0.88rem;
+  padding: 8px 12px;
+}
+
+.materialEditHeader {
+  font-size: 0.85rem;
+  color: var(--subtext);
+  font-weight: 600;
+  margin-bottom: 8px;
+}
+
+.materialEditHeader span {
+  padding: 0 4px;
+}
+
+/* ===== Material ===== */
+
+.subsection {
+  margin-top: 32px;
+}
+
+.materialEditRow {
+  display: grid;
+  grid-template-columns:
+    1.5fr
+    1fr
+    1fr
+    1fr
+    auto
+    auto;
+  gap: 12px;
+  margin-bottom: 14px;
+  align-items: center;
+}
+
+.lowStock {
+  border-color: var(--danger) !important;
+  background: #fff3f3;
+}
+
+/* ===== 表格 ===== */
+
+.movementTable {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 16px;
+  overflow: hidden;
+  border-radius: 14px;
+}
+
+.movementTable thead {
+  background: var(--secondary);
+}
+
+.movementTable th,
+.movementTable td {
+  padding: 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.93rem;
+}
+
+.movementTable tbody tr:hover {
+  background: #f8fbfa;
+}
+
+/* ===== 狀態色彩 ===== */
+
+.pending {
+  color: #c58b2c;
+}
+
+.confirmed {
+  color: var(--success);
+}
+
+.cancelled {
+  color: var(--danger);
+}
+
+/* ===== 響應式 ===== */
+
+@media (max-width: 900px) {
+  .materialEditRow {
+    grid-template-columns: 1fr;
+  }
+
+  .row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .headerRow {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .rowActions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+
+  .tabs {
+    flex-direction: column;
+  }
+}
+
+@media (max-width: 600px) {
+  .page {
+    padding: 24px 14px 60px;
+  }
+
+  .card {
+    padding: 18px;
+  }
+
+  button {
+    width: 100%;
+  }
+
+  .movementTable {
+    display: block;
+    overflow-x: auto;
+  }
+}
