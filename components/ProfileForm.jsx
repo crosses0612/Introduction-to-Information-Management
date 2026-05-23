@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
 
-const emptyForm = { email: "", phone: "", currentPassword: "", password: "" };
+const emptyForm = { username: "", phone: "", currentPassword: "" };
 
 export default function ProfileForm({ isVendor, isSubmitting, runAction, onUserUpdate }) {
   const [form, setForm] = useState(emptyForm);
-  const [initialEmail, setInitialEmail] = useState("");
+  const [initialUsername, setInitialUsername] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -15,12 +15,11 @@ export default function ProfileForm({ isVendor, isSubmitting, runAction, onUserU
       .getProfile()
       .then((profile) => {
         if (cancelled) return;
-        setInitialEmail(profile.email || "");
+        setInitialUsername(profile.username || "");
         setForm({
-          email: profile.email || "",
+          username: profile.username || "",
           phone: profile.phone || "",
-          currentPassword: "",
-          password: ""
+          currentPassword: ""
         });
       })
       .catch(() => {
@@ -37,27 +36,22 @@ export default function ProfileForm({ isVendor, isSubmitting, runAction, onUserU
   async function handleSubmit(e) {
     e.preventDefault();
     const payload = { phone: form.phone.trim() };
-    const emailChanged = form.email.trim() !== initialEmail;
-    if (emailChanged) {
-      payload.email = form.email.trim();
-      payload.currentPassword = form.currentPassword;
-    }
-    if (form.password.trim()) {
-      payload.password = form.password;
+    const usernameChanged = form.username.trim() !== initialUsername;
+    if (usernameChanged) {
+      payload.username = form.username.trim();
       payload.currentPassword = form.currentPassword;
     }
 
     await runAction(async () => {
       const data = await api.updateProfile(payload);
       onUserUpdate(data.user, data.token);
-      setInitialEmail(data.user.email);
-      setForm((prev) => ({ ...prev, currentPassword: "", password: "" }));
+      setInitialUsername(data.user.username);
+      setForm((prev) => ({ ...prev, currentPassword: "" }));
     }, { successMessage: "個人資料已更新" });
   }
 
-  const emailLabel = isVendor ? "帳號（Email）" : "電子郵件";
-  const emailChanged = form.email.trim() !== initialEmail;
-  const needsCurrentPassword = emailChanged || form.password.trim().length > 0;
+  const usernameLabel = isVendor ? "帳號（使用者名稱）" : "使用者名稱";
+  const usernameChanged = form.username.trim() !== initialUsername;
 
   if (loading) {
     return <p>載入個人資料中…</p>;
@@ -66,11 +60,11 @@ export default function ProfileForm({ isVendor, isSubmitting, runAction, onUserU
   return (
     <form onSubmit={handleSubmit} className="grid">
       <label>
-        {emailLabel}
+        {usernameLabel}
         <input
-          type="email"
-          value={form.email}
-          onChange={(e) => setForm({ ...form, email: e.target.value })}
+          type="text"
+          value={form.username}
+          onChange={(e) => setForm({ ...form, username: e.target.value })}
           required
           disabled={isSubmitting}
         />
@@ -85,12 +79,12 @@ export default function ProfileForm({ isVendor, isSubmitting, runAction, onUserU
           disabled={isSubmitting}
         />
       </label>
-      {needsCurrentPassword && (
+      {usernameChanged && (
         <label>
           目前密碼
           <input
             type="password"
-            placeholder="必填"
+            placeholder="變更使用者名稱時必填"
             value={form.currentPassword}
             onChange={(e) => setForm({ ...form, currentPassword: e.target.value })}
             required
@@ -98,16 +92,6 @@ export default function ProfileForm({ isVendor, isSubmitting, runAction, onUserU
           />
         </label>
       )}
-      <label>
-        新密碼
-        <input
-          type="password"
-          placeholder="選填，至少 6 字元"
-          value={form.password}
-          onChange={(e) => setForm({ ...form, password: e.target.value })}
-          disabled={isSubmitting}
-        />
-      </label>
       <button type="submit" disabled={isSubmitting}>
         儲存個人資料
       </button>

@@ -11,7 +11,7 @@
 - 原料低庫存提醒、進貨登錄、消耗統計
 - 待處理訂單可由客戶或廠商取消
 - 操作完成後以置中 Modal 提示，並防止重複送出
-- 客戶/廠商可於「個人資料」管理 Email（廠商為登入帳號）、電話與密碼
+- 客戶/廠商可於「個人資料」管理使用者名稱（廠商為登入帳號）、電話；密碼於獨立區塊變更
 - 下單支援交貨日期時間、來店自取/配送、備註；客戶頁顯示商家資訊
 - 訂單狀態中文顯示；廠商訂單確認/紀錄分頁；可標記已完成
 
@@ -34,7 +34,8 @@
 ├── components/
 │   ├── App.jsx             # 主應用元件
 │   ├── FeedbackModal.jsx   # 操作回饋彈窗
-│   └── ProfileForm.jsx     # 個人資料表單
+│   ├── ProfileForm.jsx     # 個人資料表單
+│   └── ChangePasswordForm.jsx  # 變更密碼表單
 ├── lib/
 │   ├── db.js               # 資料庫連線
 │   ├── auth.js             # JWT
@@ -75,6 +76,7 @@
    - [`db/migrations/20260521100000_inventory_and_cancel.sql`](db/migrations/20260521100000_inventory_and_cancel.sql)
    - [`db/migrations/20260523100000_user_phone_profile.sql`](db/migrations/20260523100000_user_phone_profile.sql)
    - [`db/migrations/20260524100000_orders_and_vendor_settings.sql`](db/migrations/20260524100000_orders_and_vendor_settings.sql)
+   - [`db/migrations/20260525100000_rename_email_to_username.sql`](db/migrations/20260525100000_rename_email_to_username.sql)
 
 ### 4) 設定環境變數
 
@@ -123,6 +125,8 @@ npm start
 
 ## 測試帳號
 
+以**使用者名稱**登入（字串可含 `@`，非 Email 格式限制）：
+
 - 廠商：`vendor@example.com` / `vendor123`
 - 客戶：`customer@example.com` / `customer123`
 
@@ -131,7 +135,7 @@ npm start
 - `POST /api/auth/register`：客戶註冊（可選填電話）
 - `POST /api/auth/login`：登入
 - `GET /api/profile`：取得個人資料（已登入）
-- `PUT /api/profile`：更新 Email、電話、密碼（變更帳號或密碼需目前密碼）
+- `PUT /api/profile`：更新 username、電話、密碼（變更 username 或密碼需目前密碼）
 - `GET /api/products`：取得商品（含配方比例）
 - `GET /api/shop-info`：商家名稱/電話/地址（公開）
 - `GET/PUT /api/vendor/settings`：廠商商家資訊與測試用時鐘偏移
@@ -166,7 +170,7 @@ schema 與種子資料就緒後，可確認：
 - 商品列表含 recipe JSON
 - 客戶下單、廠商確認扣庫、取消 pending 訂單、原料進貨/調整紀錄、低庫存提醒
 - 任一送出操作出現 Modal 提示，處理中按鈕不可重複點擊
-- 客戶/廠商於「個人資料」分頁可修改電話與密碼；變更 Email 後能以新信箱登入
+- 客戶/廠商於「個人資料」分頁可修改電話；「變更密碼」區塊常駐顯示目前密碼欄位；變更 username 後能以新名稱登入
 - 下單含日期+時間、自取/配送與備註；無效年份被拒；超大數量顯示「輸入的整數過大」
 - 客戶訂單紀錄分為已送出/已確認/已完成/已取消；廠商訂單確認頁每 15 秒自動更新
 - 廠商可標記已完成；同名商品與空原料名稱會被擋下

@@ -20,7 +20,7 @@ export async function GET(request) {
     );
 
     const customerFrequencyResult = await query(
-      `SELECT u.name, u.email,
+      `SELECT u.name, u.username,
               COUNT(o.id)::int AS order_count,
               ROUND(
                 EXTRACT(EPOCH FROM (MAX(o.created_at) - MIN(o.created_at))) / 86400,
@@ -29,7 +29,7 @@ export async function GET(request) {
        FROM users u
        JOIN orders o ON o.user_id = u.id
        WHERE u.role = 'customer' AND o.status != 'cancelled'
-       GROUP BY u.id, u.name, u.email
+       GROUP BY u.id, u.name, u.username
        ORDER BY order_count DESC`
     );
 

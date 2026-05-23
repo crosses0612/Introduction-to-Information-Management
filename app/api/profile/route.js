@@ -2,27 +2,23 @@ import { NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { query } from "@/lib/db";
 import { getUserFromRequest, signToken } from "@/lib/auth";
-import { handleRouteError, ApiError } from "@/lib/apiError";
+import { handleRouteError } from "@/lib/apiError";
 
 function safeUser(row) {
   return {
     id: row.id,
     name: row.name,
-    email: row.email,
+    username: row.username,
     role: row.role,
     phone: row.phone ?? null
   };
-}
-
-function isValidEmail(email) {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 }
 
 export async function GET(request) {
   try {
     const authUser = getUserFromRequest(request);
     const result = await query(
-      "SELECT id, name, email, role, phone FROM users WHERE id = $1",
+      "SELECT id, name, username, role, phone FROM users WHERE id = $1",
       [authUser.sub]
     );
     if (!result.rows.length) {
@@ -38,18 +34,19 @@ export async function PUT(request) {
   try {
     const authUser = getUserFromRequest(request);
     const body = await request.json();
-    const { email, phone, password, currentPassword } = body;
+    const { username, phone, password, currentPassword } = body;
 
-    const hasEmail = email !== undefined && email !== null && String(email).trim() !== "";
+    const hasUsername =
+      username !== undefined && username !== null && String(username).trim() !== "";
     const hasPhone = phone !== undefined;
     const hasPassword = password !== undefined && String(password).trim() !== "";
 
-    if (!hasEmail && !hasPhone && !hasPassword) {
+    if (!hasUsername && !hasPhone && !hasPassword) {
       return NextResponse.json({ message: "請至少更新一項資料" }, { status: 400 });
     }
 
     const current = await query(
-      "SELECT id, name, email, role, phone, password_hash FROM users WHERE id = $1",
+      "SELECT id, name, username, role, phone, password_hash FROM users WHERE id = $1",
       [authUser.sub]
     );
     if (!current.rows.length) {
@@ -57,18 +54,17 @@ export async function PUT(request) {
     }
     const user = current.rows[0];
 
-    const newEmail = hasEmail ? String(email).trim() : user.email;
-    const emailChanged = hasEmail && newEmail !== user.email;
-
-    if (hasEmail && !isValidEmail(newEmail)) {
-      return NextResponse.json({ message: "電子郵件格式不正確" }, { status: 400 });
+    const newUsername = hasUsername ? String(username).trim() : user.username;
+    if (hasUsername && !newUsername) {
+      return NextResponse.json({ message: "使用者名稱不可為空白" }, { status: 400 });
     }
+    const usernameChanged = hasUsername && newUsername !== user.username;
 
     if (hasPassword && String(password).length < 6) {
       return NextResponse.json({ message: "新密碼至少 6 個字元" }, { status: 400 });
     }
 
-    const needsCurrentPassword = emailChanged || hasPassword;
+    const needsCurrentPassword = usernameChanged || hasPassword;
     if (needsCurrentPassword && !currentPassword) {
       return NextResponse.json({ message: "變更帳號或密碼時請輸入目前密碼" }, { status: 400 });
     }
@@ -77,13 +73,13 @@ export async function PUT(request) {
       return NextResponse.json({ message: "目前密碼不正確" }, { status: 400 });
     }
 
-    if (emailChanged) {
-      const existing = await query("SELECT id FROM users WHERE email = $1 AND id != $2", [
-        newEmail,
+    if (usernameChanged) {
+      const existing = await query("SELECT id FROM users WHERE username = $1 AND id != $2", [
+        newUsername,
         user.id
       ]);
       if (existing.rows.length > 0) {
-        return NextResponse.json({ message: "此電子郵件已被使用" }, { status: 409 });
+        return NextResponse.json({ message: "此使用者名稱已被使用" }, { status: 409 });
       }
     }
 
@@ -91,9 +87,9 @@ export async function PUT(request) {
     const newPasswordHash = hasPassword ? bcrypt.hashSync(password, 10) : user.password_hash;
 
     const result = await query(
-      `UPDATE users SET email = $1, phone = $2, password_hash = $3 WHERE id = $4
-       RETURNING id, name, email, role, phone`,
-      [newEmail, newPhone || null, newPasswordHash, user.id]
+      `UPDATE users SET username = $1, phone = $2, password_hash = $3 WHERE id = $4
+       RETURNING id, name, username, role, phone`,
+      [newUsername, newPhone || null, newPasswordHash, user.id]
     );
     const updated = safeUser(result.rows[0]);
     return NextResponse.json({ token: signToken(updated), user: updated });

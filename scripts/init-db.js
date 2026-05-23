@@ -7,16 +7,16 @@ config({ path: ".env.local" });
 const { query } = await import("../lib/db.js");
 
 export async function seedData() {
-  const existingVendor = await query("SELECT id FROM users WHERE email = $1", [
+  const existingVendor = await query("SELECT id FROM users WHERE username = $1", [
     "vendor@example.com"
   ]);
   if (existingVendor.rows.length === 0) {
     await query(
-      "INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)",
+      "INSERT INTO users (name, username, password_hash, role) VALUES ($1, $2, $3, $4)",
       ["Vendor Admin", "vendor@example.com", bcrypt.hashSync("vendor123", 10), "vendor"]
     );
     await query(
-      "INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4)",
+      "INSERT INTO users (name, username, password_hash, role) VALUES ($1, $2, $3, $4)",
       ["Demo Customer", "customer@example.com", bcrypt.hashSync("customer123", 10), "customer"]
     );
   }

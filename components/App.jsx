@@ -4,6 +4,7 @@ import { nonNegativeFromInput, nonNegativeStringFromInput } from "@/lib/numbers"
 import { useActionFeedback } from "@/lib/client/useActionFeedback";
 import FeedbackModal from "@/components/FeedbackModal";
 import ProfileForm from "@/components/ProfileForm";
+import ChangePasswordForm from "@/components/ChangePasswordForm";
 import OrderForm from "@/components/OrderForm";
 import CustomerOrders from "@/components/CustomerOrders";
 import RemindersList from "@/components/RemindersList";
@@ -55,7 +56,7 @@ export default function App() {
   const [stats, setStats] = useState({ topProducts: [], customerFrequency: [] });
   const [pendingAlert, setPendingAlert] = useState({ pendingCount: 0, threshold: 5, warning: false });
 
-  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "", phone: "" });
+  const [authForm, setAuthForm] = useState({ name: "", username: "", password: "", phone: "" });
   const [productForm, setProductForm] = useState(emptyProduct);
   const [materialForm, setMaterialForm] = useState(emptyMaterial);
   const [recipeEditor, setRecipeEditor] = useState({ productId: "", materialId: "", ratio: "" });
@@ -157,11 +158,11 @@ export default function App() {
       const data =
         authMode === "register"
           ? await api.register(authForm)
-          : await api.login({ email: authForm.email, password: authForm.password });
+          : await api.login({ username: authForm.username, password: authForm.password });
       localStorage.setItem("token", data.token);
       localStorage.setItem("user", JSON.stringify(data.user));
       setUser(data.user);
-      setAuthForm({ name: "", email: "", password: "", phone: "" });
+      setAuthForm({ name: "", username: "", password: "", phone: "" });
     }, { successMessage: authMode === "register" ? "註冊成功" : "登入成功" });
   }
 
@@ -349,9 +350,9 @@ export default function App() {
               </>
             )}
             <input
-              placeholder="Email"
-              value={authForm.email}
-              onChange={(e) => setAuthForm({ ...authForm, email: e.target.value })}
+              placeholder="使用者名稱"
+              value={authForm.username}
+              onChange={(e) => setAuthForm({ ...authForm, username: e.target.value })}
               disabled={isSubmitting}
             />
             <input
@@ -435,6 +436,12 @@ export default function App() {
               <h2>個人資料</h2>
               <ProfileForm
                 isVendor={false}
+                isSubmitting={isSubmitting}
+                runAction={runAction}
+                onUserUpdate={handleUserUpdate}
+              />
+              <hr />
+              <ChangePasswordForm
                 isSubmitting={isSubmitting}
                 runAction={runAction}
                 onUserUpdate={handleUserUpdate}
@@ -796,7 +803,7 @@ export default function App() {
               ))}
               <h3>客戶下單週期</h3>
               {stats.customerFrequency.map((c) => (
-                <p key={c.email}>
+                <p key={c.username}>
                   {c.name} - 訂單數 {c.order_count} - 平均週期{" "}
                   {c.avg_cycle_days == null ? "資料不足" : `${c.avg_cycle_days} 天`}
                 </p>
@@ -810,6 +817,12 @@ export default function App() {
               <VendorSettingsForm isSubmitting={isSubmitting} runAction={runAction} />
               <ProfileForm
                 isVendor
+                isSubmitting={isSubmitting}
+                runAction={runAction}
+                onUserUpdate={handleUserUpdate}
+              />
+              <hr />
+              <ChangePasswordForm
                 isSubmitting={isSubmitting}
                 runAction={runAction}
                 onUserUpdate={handleUserUpdate}
