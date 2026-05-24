@@ -9,6 +9,16 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
   const [deliveryAddress, setDeliveryAddress] = useState("");
   const [note, setNote] = useState("");
   const [quantities, setQuantities] = useState({});
+  const [errorMessage, setErrorMessage] = useState("");
+
+  // 取得今天的日期字串 (YYYY-MM-DD)，用於設定日期的 min 屬性
+  const getTodayString = () => {
+    const today = new Date();
+    const yyyy = today.getFullYear();
+    const mm = String(today.getMonth() + 1).padStart(2, "0");
+    const dd = String(today.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
 
   useEffect(() => {
     setDeliveryDate("");
@@ -17,22 +27,50 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
     setDeliveryAddress("");
     setNote("");
     setQuantities({});
+    setErrorMessage("");
   }, [resetToken]);
 
   function handleSubmit(e) {
     e.preventDefault();
+    setErrorMessage("");
+
+    // 1. 檢查是否有選購商品
     const items = Object.entries(quantities)
       .filter(([, qty]) => Number(qty) > 0)
-      .map(([productId, qty]) => ({ productId: Number(productId), quantity: Number(qty) }));
+      .map(([productId, qty]) => ({
+        productId: Number(productId),
+        quantity: Number(qty),
+      }));
 
-    const deliveryAt = deliveryDate && deliveryTime ? `${deliveryDate}T${deliveryTime}:00` : "";
+    if (items.length === 0) {
+      setErrorMessage("請至少選擇一項商品的數量！");
+      return;
+    }
 
+    // 2. 檢查交貨時間是否為過去的時間
+    const now = new Date();
+    const selectedDateTime = new Date(`${deliveryDate}T${deliveryTime}`);
+
+    if (selectedDateTime < now) {
+      setErrorMessage("交貨時間不能早於當前時間，請重新選擇。");
+      return;
+    }
+
+    // 3. 檢查配送地址
+    if (deliveryMethod === "delivery" && !deliveryAddress.trim()) {
+      setErrorMessage("選擇配送時，收貨地址不能為空。");
+      return;
+    }
+
+    const deliveryAt = `${deliveryDate}T${deliveryTime}:00`;
+
+    // 通過所有檢查，送出資料
     onSubmit({
       deliveryAt,
       deliveryMethod,
       deliveryAddress: deliveryMethod === "delivery" ? deliveryAddress : "",
       note,
-      items
+      items,
     });
   }
 
@@ -41,17 +79,20 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
       <ShopInfo />
       <section className="card">
         <h2>下單介面</h2>
+        
         <form onSubmit={handleSubmit} className="grid">
           <label>
             交貨日
             <input
               type="date"
               value={deliveryDate}
+              min={getTodayString()} /* 限制不能選過去的日期 */
               onChange={(e) => setDeliveryDate(e.target.value)}
               disabled={isSubmitting}
               required
             />
           </label>
+
           <label>
             交貨時間
             <input
@@ -62,34 +103,37 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
               required
             />
           </label>
-          <fieldset className="radioGroup" disabled={isSubmitting}>
-            <legend>取貨方式</legend>
-            <label className="inlineRadio">
-              <input
-                type="radio"
-                name="deliveryMethod"
-                value="pickup"
-                checked={deliveryMethod === "pickup"}
-                onChange={() => setDeliveryMethod("pickup")}
-              />
-              來店自取
-            </label>
-            <label className="inlineRadio">
-              <input
-                type="radio"
-                name="deliveryMethod"
-                value="delivery"
-                checked={deliveryMethod === "delivery"}
-                onChange={() => setDeliveryMethod("delivery")}
-              />
-              配送
-            </label>
-          </fieldset>
+
+          {/* 取貨方式 UI 優化：改為 Tabs 頁籤式按鈕切換 */}
+          <div className="radioGroup">
+            <span style={{ fontSize: "0.95rem", color: "var(--subtext)", display: "block", marginBottom: "8px" }}>
+              取貨方式
+            </span>
+            <div className="tabs" style={{ marginBottom: 0 }}>
+              <button
+                type="button"
+                className={deliveryMethod === "pickup" ? "active" : ""}
+                onClick={() => setDeliveryMethod("pickup")}
+                disabled={isSubmitting}
+              >
+                來店自取
+              </button>
+              <button
+                type="button"
+                className={deliveryMethod === "delivery" ? "active" : ""}
+                onClick={() => setDeliveryMethod("delivery")}
+                disabled={isSubmitting}
+              >
+                配送到府
+              </button>
+            </div>
+          </div>
+
           {deliveryMethod === "delivery" && (
             <label>
               收貨地址
               <input
-                placeholder="請填寫配送地址"
+                placeholder="請填寫完整的配送地址"
                 value={deliveryAddress}
                 onChange={(e) => setDeliveryAddress(e.target.value)}
                 disabled={isSubmitting}
@@ -97,39 +141,51 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
               />
             </label>
           )}
+
           <label>
             訂單備註
             <textarea
-              placeholder="選填"
+              placeholder="如有特殊需求請在此註明（選填）"
               value={note}
               onChange={(e) => setNote(e.target.value)}
               disabled={isSubmitting}
               rows={2}
             />
           </label>
+
+          <h3 style={{ marginTop: "10px", marginBottom: "5px" }}>商品清單</h3>
           {products
             .filter((p) => p.is_active)
             .map((product) => (
-              <label key={product.id}>
-                {product.name} (NT$ {product.price})
+              <label key={product.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
+                <span>
+                  {product.name} <strong style={{ color: "var(--primary-dark)" }}>(NT$ {product.price})</strong>
+                </span>
                 <input
                   type="number"
                   min="0"
                   max="99999"
                   step="1"
+                  style={{ width: "100px", textAlign: "left" }}
                   value={quantities[product.id] || ""}
                   onChange={(e) =>
                     setQuantities({
                       ...quantities,
-                      [product.id]: nonNegativeFromInput(e.target.value)
+                      [product.id]: e.target.value === "" ? "" : nonNegativeFromInput(e.target.value),
                     })
                   }
                   disabled={isSubmitting}
                 />
               </label>
             ))}
-          <button type="submit" disabled={isSubmitting}>
-            送出訂單
+          {/* 錯誤提示區塊 */}
+          {errorMessage && (
+            <div className="alert" style={{ borderLeft: "5px solid var(--danger)", color: "#a94442", background: "#f2dede" }}>
+             {errorMessage}
+            </div>
+          )}
+          <button type="submit" disabled={isSubmitting} style={{ marginTop: "10px" }}>
+            {isSubmitting ? "訂單送出中..." : "確認送出訂單"}
           </button>
         </form>
       </section>

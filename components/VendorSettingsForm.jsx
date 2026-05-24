@@ -43,7 +43,7 @@ export default function VendorSettingsForm({ isSubmitting, runAction }) {
 
   return (
     <form onSubmit={handleSubmit} className="grid subsection">
-      <h3>商家資訊（客戶下單頁顯示）</h3>
+      <h3>商家資訊</h3>
       <label>
         商家名稱
         <input

@@ -59,6 +59,7 @@ export default function ProfileForm({ isVendor, isSubmitting, runAction, onUserU
 
   return (
     <form onSubmit={handleSubmit} className="grid">
+      <h3>個人資料</h3>
       <label>
         {usernameLabel}
         <input
@@ -69,16 +70,18 @@ export default function ProfileForm({ isVendor, isSubmitting, runAction, onUserU
           disabled={isSubmitting}
         />
       </label>
-      <label>
-        電話
-        <input
-          type="tel"
-          placeholder="選填"
-          value={form.phone}
-          onChange={(e) => setForm({ ...form, phone: e.target.value })}
-          disabled={isSubmitting}
-        />
-      </label>
+      {!isVendor && (
+        <label>
+          電話
+          <input
+            type="tel"
+            placeholder="選填"
+            value={form.phone}
+            onChange={(e) => setForm({ ...form, phone: e.target.value })}
+            disabled={isSubmitting}
+          />
+        </label>
+      )}
       {usernameChanged && (
         <label>
           目前密碼

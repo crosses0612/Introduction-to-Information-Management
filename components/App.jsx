@@ -11,14 +11,15 @@ import RemindersList from "@/components/RemindersList";
 import OrderCard from "@/components/OrderCard";
 import VendorSettingsForm from "@/components/VendorSettingsForm";
 import { formatDateTime } from "@/lib/format";
+import CustomerReminderList from "@/components/CustomerReminderlist";
 
 function formatRecipeLine(r) {
   const kg = r.usageKg ?? r.ratio;
   return `${r.materialName} ${kg} kg`;
 }
-
-const emptyProduct = { name: "", description: "", price: 0, isActive: true };
-const emptyMaterial = { name: "", stock: 0, unit: "kg", lowStockThreshold: 10 };
+const DEFAULT_UNITS = ["公斤 (kg)", "公克 (g)", "磅 (lb)", "公升 (L)", "加侖 (gal)", "桶", "包", "罐"];
+const emptyProduct = { name: "", description: "", price: "", isActive: true }; // price 改為 ""
+const emptyMaterial = { name: "", stock: "", unit: "公斤", lowStockThreshold: 10 }; // stock 改為 ""
 
 const customerTabs = [
   ["order", "下單"],
@@ -65,6 +66,17 @@ export default function App() {
   const [inboundForm, setInboundForm] = useState({ materialId: "", quantity: "", note: "" });
   const [movements, setMovements] = useState([]);
   const [consumptionStats, setConsumptionStats] = useState([]);
+  const [vendorHistoryTab, setVendorHistoryTab] = useState("confirmed");
+  // App 組件內部
+  const [unitList, setUnitList] = useState(DEFAULT_UNITS);
+
+  const [isCustomUnit, setIsCustomUnit] = useState(false); 
+  const [customUnitInput, setCustomUnitInput] = useState("");
+
+  const [editingCustomUnitId, setEditingCustomUnitId] = useState(null);
+  const [editCustomUnitInput, setEditCustomUnitInput] = useState("");
+  const [editingProductId, setEditingProductId] = useState(null);
+  const [productEditForm, setProductEditForm] = useState({ name: "", description: "", price: "", recipe: [] });
 
   const isVendor = user?.role === "vendor";
   const isCustomer = user?.role === "customer";
@@ -201,15 +213,28 @@ export default function App() {
 
   async function createProduct(e) {
     e.preventDefault();
+    
+    // 前端直接阻擋名稱重複
+    const isDuplicate = products.some(p => p.name.trim() === productForm.name.trim());
+    if (isDuplicate) {
+      notifyError("新增失敗：商品名稱「" + productForm.name + "」已存在，請使用其他名稱！");
+      return;
+    }
+
     await runAction(async () => {
       await api.createProduct(productForm);
       setProductForm(emptyProduct);
       await refreshCoreData();
-    }, { successMessage: "商品已新增" });
+    }, { successMessage: "商品已成功上架！" });
   }
 
   async function createMaterial(e) {
     e.preventDefault();
+    const isDuplicate = materials.some(m => m.name.trim() === materialForm.name.trim());
+    if (isDuplicate) {
+      notifyError("新增失敗：原料名稱「" + materialForm.name + "」已存在，請確認是否重疊！");
+      return;
+    }
     await runAction(async () => {
       await api.createMaterial({
         name: materialForm.name,
@@ -219,25 +244,28 @@ export default function App() {
       });
       setMaterialForm(emptyMaterial);
       await refreshCoreData();
+      if (isCustomUnit && customUnitInput.trim() && !unitList.includes(customUnitInput.trim())) {
+        setUnitList([...unitList, customUnitInput.trim()]);
+      }
+      setIsCustomUnit(false);
+      setCustomUnitInput("");
     }, { successMessage: "原料已新增" });
   }
 
-  async function applyRecipe(e) {
-    e.preventDefault();
-    await runAction(async () => {
-      if (!recipeEditor.productId || !recipeEditor.materialId || recipeEditor.ratio === "") {
-        throw new Error("請先選擇商品、原料與每件用量(kg)");
-      }
-      const usageKg = nonNegativeFromInput(recipeEditor.ratio);
-      const product = products.find((p) => p.id === Number(recipeEditor.productId));
-      const existing = product?.recipe || [];
-      const next = [...existing.filter((x) => x.materialId !== Number(recipeEditor.materialId))];
-      next.push({ materialId: Number(recipeEditor.materialId), ratio: usageKg, usageKg });
-      await api.updateRecipe(recipeEditor.productId, next);
-      setRecipeEditor({ productId: "", materialId: "", ratio: "" });
-      await refreshCoreData();
-    }, { successMessage: "配方用量已更新" });
-  }
+async function handleUpdateProductAndRecipe(productId, e) {
+  e.preventDefault();
+  await runAction(async () => {
+    // 呼叫後端 API 同時更新商品基本資料與配方（視你後端 API 調整，或分兩支 API 跑 Promise.all）
+    await api.updateProduct(productId, {
+      name: productEditForm.name,
+      description: productEditForm.description,
+      price: Number(productEditForm.price),
+    });
+    await api.updateRecipe(productId, productEditForm.recipe);
+    setEditingProductId(null);
+    await refreshCoreData();
+  }, { successMessage: "商品與配方已同步更新" });
+}
 
   async function confirmOrder(id) {
     await runAction(
@@ -276,6 +304,11 @@ export default function App() {
         lowStockThreshold: nonNegativeFromInput(edit.low_stock_threshold, 10)
       });
       await refreshCoreData();
+      if (editCustomUnitInput.trim() && !unitList.includes(editCustomUnitInput.trim())) {
+        setUnitList([...unitList, editCustomUnitInput.trim()]);
+      }
+      setEditingCustomUnitId(null);
+      setEditCustomUnitInput("");
     }, { successMessage: "原料已更新" });
   }
 
@@ -326,7 +359,7 @@ export default function App() {
         type={modalType}
         onClose={closeModal}
       />
-      <h1>資訊管理導論 - 訂單與原料管理系統</h1>
+      <h1>訂單與原料管理系統</h1>
 
       {!user ? (
         <section className="card">
@@ -400,6 +433,19 @@ export default function App() {
             </section>
           )}
 
+          {isVendor && stats.customerFrequency && stats.customerFrequency.filter(c => {
+            return c.avg_cycle_days !== null && c.avg_cycle_days <= 3; 
+          }).length > 0 && (
+            <section className="alert" style={{ borderLeft: "5px solid var(--warning)", background: "#fff9f0" }}>
+               <strong>客戶下單週期提醒：</strong>
+              {stats.customerFrequency
+                .filter(c => c.avg_cycle_days !== null && c.avg_cycle_days <= 3)
+                .map((c) => `${c.name}（預計 ${c.avg_cycle_days} 天內再度下單）`)
+                .join("、")} 
+              ，請提早備妥原料與產能。
+            </section>
+          )}
+
           {(isCustomer || isVendor) && (
             <section className="tabs">
               {tabs.map(([key, label]) => (
@@ -425,7 +471,14 @@ export default function App() {
             />
           )}
 
-          {isCustomer && activeTab === "reminders" && <RemindersList reminders={reminders} />}
+          {isCustomer && activeTab === "reminders" && (
+            <RemindersList 
+              // 捨棄結構不完整的 reminders，直接拿客戶自己最完整的 orders 清單
+              // 過濾出狀態為 "confirmed"（廠商已確認、待交貨）的訂單作為提醒來源
+              reminders={orders.filter(o => o.status === "confirmed")} 
+              products={products}
+            />
+          )}
 
           {isCustomer && activeTab === "orders" && (
             <CustomerOrders orders={orders} isSubmitting={isSubmitting} onCancel={cancelOrder} />
@@ -433,7 +486,6 @@ export default function App() {
 
           {isCustomer && activeTab === "profile" && (
             <section className="card">
-              <h2>個人資料</h2>
               <ProfileForm
                 isVendor={false}
                 isSubmitting={isSubmitting}
@@ -473,9 +525,7 @@ export default function App() {
                   max="99999"
                   step="1"
                   value={productForm.price}
-                  onChange={(e) =>
-                    setProductForm({ ...productForm, price: nonNegativeFromInput(e.target.value) })
-                  }
+                  onChange={(e) => setProductForm({ ...productForm, price: e.target.value === "" ? "" : nonNegativeFromInput(e.target.value) })}
                   disabled={isSubmitting}
                 />
                 </label>
@@ -484,62 +534,104 @@ export default function App() {
                 </button>
               </form>
 
-              <form onSubmit={applyRecipe} className="grid recipeBox">
-                <select
-                  value={recipeEditor.productId}
-                  onChange={(e) => setRecipeEditor({ ...recipeEditor, productId: e.target.value })}
-                  disabled={isSubmitting}
-                >
-                  <option value="">選擇商品</option>
-                  {products.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  value={recipeEditor.materialId}
-                  onChange={(e) => setRecipeEditor({ ...recipeEditor, materialId: e.target.value })}
-                  disabled={isSubmitting}
-                >
-                  <option value="">選擇原料</option>
-                  {materials.map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.name}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="number"
-                  min="0"
-                  step="0.01"
-                  placeholder="每件用量 (kg)"
-                  value={recipeEditor.ratio}
-                  onChange={(e) =>
-                    setRecipeEditor({ ...recipeEditor, ratio: nonNegativeStringFromInput(e.target.value) })
-                  }
-                  disabled={isSubmitting}
-                />
-                <button type="submit" disabled={isSubmitting}>
-                  更新配方用量
-                </button>
-              </form>
+              {products.map((p) => {
+                const isEditing = editingProductId === p.id;
+                return (
+                  <div key={p.id} className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: "15px" }}>
+                    {!isEditing ? (
+                      // 瀏覽模式
+                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                        <div>
+                          <strong>{p.name}</strong> - <span style={{ color: "var(--primary)" }}>NT$ {p.price}</span>
+                          <p style={{ margin: "5px 0", color: "var(--subtext)" }}>{p.description}</p>
+                          <small> 當前配方： {p.recipe.map((r) => `${r.materialName} ${r.ratio} ${r.materialUnit || 'kg'}`).join(" / ") || "尚未設定"}</small>
+                        </div>
+                        <div style={{ display: "flex", gap: "10px" }}>
+                          <button type="button" onClick={() => {
+                            setEditingProductId(p.id);
+                            setProductEditForm({ name: p.name, description: p.description, price: p.price, recipe: p.recipe || [] });
+                          }}>編輯商品與配方</button>
+                          <button type="button" className="btn-danger" onClick={() => removeProduct(p.id)}>刪除</button>
+                        </div>
+                      </div>
+                    ) : (
+                      // 編輯模式
+                      <form onSubmit={(e) => handleUpdateProductAndRecipe(p.id, e)} className="grid" style={{ background: "#f9f9f9", padding: "15px", borderRadius: "8px" }}>
+                        <h3>修改商品資料</h3>
+                        <label>
+                          商品名稱
+                          <input value={productEditForm.name} onChange={(e) => setProductEditForm({...productEditForm, name: e.target.value})} placeholder="商品名稱" required />
+                        </label>
+                        <label>
+                          商品描述
+                          <input value={productEditForm.description} onChange={(e) => setProductEditForm({...productEditForm, description: e.target.value})} placeholder="商品描述" />
+                        </label>
+                        <label>
+                          價格
+                          <input type="number" value={productEditForm.price} onChange={(e) => setProductEditForm({...productEditForm, price: e.target.value})} placeholder="價格" required />
+                        </label>                        
+                        <h4>配方調整</h4>
+                        {materials.map((m) => {
+                          // 1. 精準找出該原料是否已存在於當前編輯商品的配方中
+                          const currentRecipeItem = productEditForm.recipe.find(r => Number(r.materialId) === Number(m.id));
+                          
+                          // 2. 決定輸入框要顯示的值：如果配方裡有，就拿它的用量（ratio 或 usageKg），否則就留空
+                          // 這樣能完美解決你「數字輸入不流暢、卡 0」以及「顯示目前數量」的痛點
+                          const inputValue = currentRecipeItem 
+                            ? (currentRecipeItem.ratio ?? currentRecipeItem.usageKg ?? "") 
+                            : "";
 
-              {products.map((p) => (
-                <div key={p.id} className="row">
-                  <div>
-                    <strong>{p.name}</strong> - NT$ {p.price}
-                    <p>{p.description}</p>
-                    <small>
-                      配方：
-                      {p.recipe.map((r) => formatRecipeLine(r)).join(" / ") || "尚未設定"}
-                    </small>
+                          return (
+                            <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
+                              <span>
+                                {m.name} ({m.unit}) 
+                                {/* 如果目前配方有包含此原料，在旁邊貼心顯示提示小字 */}
+                                {currentRecipeItem && <small style={{ color: "var(--primary)", marginLeft: "8px" }}>(已在配方中)</small>}
+                              </span>
+                              
+                              <input 
+                                type="number" 
+                                style={{ width: "120px" }} 
+                                placeholder="不用請留空"
+                                value={inputValue} 
+                                onChange={(e) => {
+                                  const val = e.target.value;
+                                  
+                                  // 過濾掉舊的該項原料，避免重複資料留在陣列裡導致 duplicate key 錯誤
+                                  const otherRecipeItems = productEditForm.recipe.filter(r => Number(r.materialId) !== Number(m.id));
+                                  
+                                  let nextRecipe = [...otherRecipeItems];
+
+                                  // 如果使用者有輸入有效數字（且大於 0）
+                                  if (val !== "" && Number(val) > 0) {
+                                    // 統一格式：確保傳給後端的欄位名稱同時具備 materialId、ratio 與後端可能需要的 usageKg/materialName
+                                    nextRecipe.push({
+                                      materialId: Number(m.id),
+                                      materialName: m.name,
+                                      ratio: Number(val),
+                                      usageKg: Number(val) // 順便附帶 usageKg 欄位，徹底對齊你後端的資料模型
+                                    });
+                                  }
+
+                                  // 一口氣更新 State
+                                  setProductEditForm({ 
+                                    ...productEditForm, 
+                                    recipe: nextRecipe 
+                                  });
+                                }}
+                              />
+                            </div>
+                          );
+                        })}
+                        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
+                          <button type="submit">儲存所有變更</button>
+                          <button type="button" style={{ background: "#ccc" }} onClick={() => setEditingProductId(null)}>取消</button>
+                        </div>
+                      </form>
+                    )}
                   </div>
-                  <button type="button" onClick={() => removeProduct(p.id)} disabled={isSubmitting}>
-                    刪除
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </section>
           )}
 
@@ -558,20 +650,60 @@ export default function App() {
                   <input
                   type="number"
                   min="0"
-                  step="0.01"
+                  step="1"
                   value={materialForm.stock}
                   onChange={(e) =>
-                    setMaterialForm({ ...materialForm, stock: nonNegativeFromInput(e.target.value) })
+                    setMaterialForm({ ...materialForm, stock: e.target.value === "" ? "" : nonNegativeFromInput(e.target.value) })
                   }
                   disabled={isSubmitting}
                 />
                 </label>
-                <input
-                  placeholder="單位"
-                  value={materialForm.unit}
-                  onChange={(e) => setMaterialForm({ ...materialForm, unit: e.target.value })}
-                  disabled={isSubmitting}
-                />
+                <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+                  <label>單位</label>
+                  {!isCustomUnit ? (
+                    <select 
+                      value={materialForm.unit || "公斤"} 
+                      onChange={(e) => {
+                        if (e.target.value === "custom") {
+                          setIsCustomUnit(true);
+                          setMaterialForm({ ...materialForm, unit: "" }); // 清空讓商家輸入
+                        } else {
+                          setMaterialForm({ ...materialForm, unit: e.target.value });
+                        }
+                      }} 
+                      disabled={isSubmitting}
+                    >
+                      {unitList.map((u) => (
+                        <option key={u} value={u}>{u}</option>
+                      ))}
+                      <option value="custom" style={{ color: "var(--primary)", fontWeight: "bold" }}>➕ 新增自訂單位...</option>
+                    </select>
+                  ) : (
+                    <div style={{ display: "flex", gap: "8px" }}>
+                      <input 
+                        placeholder="請輸入新單位（如：罐、箱）" 
+                        value={customUnitInput} 
+                        onChange={(e) => {
+                          setCustomUnitInput(e.target.value);
+                          setMaterialForm({ ...materialForm, unit: e.target.value });
+                        }}
+                        disabled={isSubmitting}
+                      />
+                      <button 
+                        type="button" 
+                        style={{ width: "auto", padding: "0 12px", background: "#ccc", color: "#333" }}
+                        onClick={() => {
+                          // 取消自訂，換回預設的第一個單位
+                          setIsCustomUnit(false);
+                          setCustomUnitInput("");
+                          setMaterialForm({ ...materialForm, unit: unitList[0] });
+                        }}
+                      >
+                      取消
+                    </button>
+                  </div>
+                )}
+              </div>
                 <button type="submit" disabled={isSubmitting}>
                   新增原料
                 </button>
@@ -604,7 +736,7 @@ export default function App() {
                       <input
                         type="number"
                         min="0"
-                        step="0.01"
+                        step="1"
                         title="庫存 (kg)"
                         value={edit.stock ?? m.stock}
                         className={m.is_low_stock ? "lowStock" : ""}
@@ -616,21 +748,57 @@ export default function App() {
                         }
                         disabled={isSubmitting}
                       />
-                      <input
-                        value={edit.unit ?? m.unit}
-                        title="單位"
-                        onChange={(e) =>
-                          setMaterialEdits({
-                            ...materialEdits,
-                            [m.id]: { ...edit, unit: e.target.value }
-                          })
-                        }
-                        disabled={isSubmitting}
-                      />
+                      {editingCustomUnitId !== m.id ? (
+                        <select 
+                          value={edit.unit ?? m.unit ?? "公斤"} 
+                          title="單位" 
+                          onChange={(e) => {
+                            if (e.target.value === "custom") {
+                              setEditingCustomUnitId(m.id);
+                              setMaterialEdits({ ...materialEdits, [m.id]: { ...edit, unit: "" } });
+                            } else {
+                              setMaterialEdits({ ...materialEdits, [m.id]: { ...edit, unit: e.target.value } });
+                            }
+                          }} 
+                          disabled={isSubmitting}
+                        >
+                          {/* 確保舊資料如果有非預設單位，也能正確顯示在選單中 */}
+                          {m.unit && !unitList.includes(m.unit) && <option value={m.unit}>{m.unit}</option>}
+                          
+                          {unitList.map((u) => (
+                            <option key={u} value={u}>{u}</option>
+                          ))}
+                          <option value="custom">➕ 新增...</option>
+                        </select>
+                      ) : (
+                        <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                          <input 
+                            style={{ width: "70px" }}
+                            placeholder="新單位"
+                            value={editCustomUnitInput}
+                            onChange={(e) => {
+                              setEditCustomUnitInput(e.target.value);
+                              setMaterialEdits({ ...materialEdits, [m.id]: { ...edit, unit: e.target.value } });
+                            }}
+                            disabled={isSubmitting}
+                          />
+                          <button 
+                            type="button" 
+                            style={{ padding: "2px 6px", fontSize: "12px", background: "#efefef", color: "#333" }}
+                            onClick={() => {
+                              setEditingCustomUnitId(null);
+                              setEditCustomUnitInput("");
+                              setMaterialEdits({ ...materialEdits, [m.id]: { ...edit, unit: m.unit } });
+                            }}
+                          >
+                            ✖
+                          </button>
+                        </div>
+                      )}
                       <input
                         type="number"
                         min="0"
-                        step="0.01"
+                        step="1"
                         title="低庫存門檻 (kg)"
                         value={edit.low_stock_threshold ?? m.low_stock_threshold ?? 10}
                         onChange={(e) =>
@@ -768,28 +936,63 @@ export default function App() {
           {isVendor && activeTab === "orderHistory" && (
             <section className="card">
               <h2>訂單紀錄</h2>
-              {historyOrders.length === 0 ? (
-                <p>尚無歷史訂單。</p>
+              {/* 新增商家專用的狀態切換頁籤 */}
+              <div className="tabs subTabs">
+                <button 
+                  type="button" 
+                  className={vendorHistoryTab === "confirmed" ? "active" : ""} 
+                  onClick={() => setVendorHistoryTab("confirmed")}
+                  disabled={isSubmitting}
+                >
+                  已確認 (待完成)
+                </button>
+                <button 
+                  type="button" 
+                  className={vendorHistoryTab === "completed" ? "active" : ""} 
+                  onClick={() => setVendorHistoryTab("completed")}
+                  disabled={isSubmitting}
+                >
+                  已完成
+                </button>
+                <button 
+                  type="button" 
+                  className={vendorHistoryTab === "cancelled" ? "active" : ""} 
+                  onClick={() => setVendorHistoryTab("cancelled")}
+                  disabled={isSubmitting}
+                >
+                  已取消
+                </button>
+              </div>
+
+              {/* 根據選擇的頁籤過濾訂單 */}
+              {historyOrders.filter((o) => o.status === vendorHistoryTab).length === 0 ? (
+                <p>此分類尚無歷史訂單。</p>
               ) : (
-                historyOrders.map((o) => (
-                  <OrderCard
-                    key={o.id}
-                    order={o}
-                    actions={
-                      o.status === "confirmed" ? (
-                        <button type="button" onClick={() => completeOrder(o.id)} disabled={isSubmitting}>
-                          標記已完成
-                        </button>
-                      ) : null
-                    }
-                  />
-                ))
+                historyOrders
+                  .filter((o) => o.status === vendorHistoryTab)
+                  .map((o) => (
+                    <OrderCard 
+                      key={o.id} 
+                      order={o} 
+                      actions={
+                        o.status === "confirmed" ? (
+                          <button type="button" onClick={() => completeOrder(o.id)} disabled={isSubmitting}>
+                            標記已完成
+                          </button>
+                        ) : null
+                      } 
+                    />
+                  ))
               )}
             </section>
           )}
 
           {isVendor && activeTab === "reminders" && (
-            <RemindersList reminders={reminders} showCustomer />
+            <RemindersList 
+              reminders={historyOrders.filter(o => o.status === "confirmed")} 
+              products={products} // 把目前系統所有的商品清單（含價格）傳給提醒列表
+              showCustomer 
+            />
           )}
 
           {isVendor && activeTab === "stats" && (
@@ -815,6 +1018,7 @@ export default function App() {
             <section className="card">
               <h2>個人資料與商家設定</h2>
               <VendorSettingsForm isSubmitting={isSubmitting} runAction={runAction} />
+              <hr />
               <ProfileForm
                 isVendor
                 isSubmitting={isSubmitting}
