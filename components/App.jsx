@@ -11,7 +11,6 @@ import RemindersList from "@/components/RemindersList";
 import OrderCard from "@/components/OrderCard";
 import VendorSettingsForm from "@/components/VendorSettingsForm";
 import { formatDateTime } from "@/lib/format";
-import CustomerReminderList from "@/components/CustomerReminderlist";
 
 function formatRecipeLine(r) {
   const kg = r.usageKg ?? r.ratio;
@@ -646,7 +645,7 @@ async function handleUpdateProductAndRecipe(productId, e) {
                   disabled={isSubmitting}
                 />
                 <label>
-                  庫存量 (kg)
+                  庫存量
                   <input
                   type="number"
                   min="0"
