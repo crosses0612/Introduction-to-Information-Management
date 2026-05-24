@@ -149,7 +149,8 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
               value={note}
               onChange={(e) => setNote(e.target.value)}
               disabled={isSubmitting}
-              rows={2}
+              rows={5}
+              style={{ resize: "none" }}
             />
           </label>
 
@@ -157,10 +158,17 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
           {products
             .filter((p) => p.is_active)
             .map((product) => (
-              <label key={product.id} style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "center" }}>
-                <span>
-                  {product.name} <strong style={{ color: "var(--primary-dark)" }}>(NT$ {product.price})</strong>
-                </span>
+              <div key={product.id} style={{ padding: "10px 0", borderBottom: "1px solid var(--border)", display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: "10px" }}>
+                <div style={{ flex: 1 }}>
+                  <div>
+                    {product.name} <strong style={{ color: "var(--primary-dark)" }}>(NT$ {product.price})</strong>
+                  </div>
+                  {product.description && (
+                    <p style={{ margin: "5px 0 0 0", color: "var(--subtext)", fontSize: "0.9rem" }}>
+                      {product.description}
+                    </p>
+                  )}
+                </div>
                 <input
                   type="number"
                   min="0"
@@ -176,7 +184,7 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
                   }
                   disabled={isSubmitting}
                 />
-              </label>
+              </div>
             ))}
           {/* 錯誤提示區塊 */}
           {errorMessage && (

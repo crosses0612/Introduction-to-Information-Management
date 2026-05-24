@@ -2,7 +2,7 @@ import { useState } from "react";
 import OrderCard from "@/components/OrderCard";
 
 const STATUS_TABS = [
-  ["pending", "已送出"],
+  ["pending", "待確認"],
   ["confirmed", "已確認"],
   ["completed", "已完成"],
   ["cancelled", "已取消"]
