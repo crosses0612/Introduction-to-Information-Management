@@ -1,7 +1,7 @@
 import { formatDateTime } from "@/lib/format";
 import { deliveryMethodLabel } from "@/lib/labels";
 
-export default function RemindersList({ reminders, products, showCustomer = false }) {
+export default function RemindersList({ reminders, products, showCustomer = false, onComplete, isSubmitting }) {
   return (
     <section className="card">
       <h2>交貨日提醒（已確認訂單）</h2>
@@ -121,7 +121,7 @@ export default function RemindersList({ reminders, products, showCustomer = fals
                     {(r.delivery_address ?? r.deliveryAddress) && ` — ${r.delivery_address ?? r.deliveryAddress}`}
                   </div>
                   <div style={{ fontSize: "1.1rem", fontWeight: "bold", color: "var(--primary-dark)" }}>
-                    總金額：<span style={{ color: "var(--danger)" }}>NT$ {finalTotal}</span>
+                    總金額：<span>NT$ {finalTotal}</span>
                   </div>
                 </div>
 
@@ -129,6 +129,18 @@ export default function RemindersList({ reminders, products, showCustomer = fals
                 {r.note && (
                   <div style={{ fontSize: "0.85rem", color: "#666", fontStyle: "italic", marginTop: "5px", borderTop: "1px dashed #eee", paddingTop: "5px" }}>
                     備註：{r.note}
+                  </div>
+                )}
+
+                {showCustomer && onComplete && (
+                  <div style={{ display: "flex", justifyContent: "flex-end", marginTop: "20px" }}>
+                    <button 
+                      type="button" 
+                      onClick={() => onComplete(r.id)}
+                      disabled={isSubmitting}
+                    >
+                      完成該訂單
+                    </button>
                   </div>
                 )}
               </div>

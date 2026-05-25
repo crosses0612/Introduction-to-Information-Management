@@ -297,6 +297,125 @@ button.link:hover {
   color: var(--subtext);
 }
 
+.order-form-shell {
+  overflow: visible;
+}
+
+.order-form-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
+  gap: 24px;
+  align-items: start;
+}
+
+.order-form-main {
+  display: grid;
+  gap: 18px;
+}
+
+.order-form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
+.order-form-label {
+  font-size: 0.95rem;
+  color: var(--subtext);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.order-form-section-title {
+  margin: 0 0 12px;
+  color: var(--primary-dark);
+}
+
+.product-list {
+  display: grid;
+  gap: 12px;
+}
+
+.product-item {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 110px;
+  gap: 16px;
+  align-items: start;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.product-item:last-child {
+  border-bottom: none;
+}
+
+.product-item.is-discontinued {
+  opacity: 0.6;
+}
+
+.product-item-meta {
+  min-width: 0;
+}
+
+.product-item-name {
+  font-weight: 700;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.product-item-status,
+.product-item-price {
+  color: var(--danger);
+  font-size: 0.95rem;
+}
+
+.product-item-price {
+  color: var(--primary-dark);
+}
+
+.product-item-description {
+  margin: 6px 0 0;
+  color: var(--subtext);
+  font-size: 0.9rem;
+}
+
+.product-item-input {
+  width: 110px;
+  text-align: left;
+}
+
+.order-form-alert {
+  margin-bottom: 0;
+}
+
+.order-form-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.order-form-actions button {
+  width: auto;
+  min-width: 180px;
+}
+
+.order-form-sidebar {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+}
+
+.order-form-sidebar-card {
+  background: linear-gradient(180deg, #fcfdfd, #f7fbfa);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 16px;
+}
+
 /* ===== Recipe Box ===== */
 
 .recipeBox {
@@ -440,6 +559,34 @@ button.link:hover {
   .tabs {
     flex-direction: column;
   }
+
+  .order-form-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .order-form-sidebar {
+    position: static;
+  }
+
+  .order-form-grid-2 {
+    grid-template-columns: 1fr;
+  }
+
+  .product-item {
+    grid-template-columns: 1fr;
+  }
+
+  .product-item-input {
+    width: 100%;
+  }
+
+  .order-form-actions {
+    justify-content: stretch;
+  }
+
+  .order-form-actions button {
+    width: 100%;
+  }
 }
 
 @media (max-width: 600px) {
@@ -459,4 +606,27 @@ button.link:hover {
     display: block;
     overflow-x: auto;
   }
+}
+
+/* 紅點計數器外殼 */
+.tab-badge-container {
+  position: relative;
+  display: inline-block;
+}
+
+/* 紅點本體 */
+.tab-badge {
+  position: absolute;
+  top: -18px;
+  right: -23px;
+  background-color: var(--danger, #850002);
+  color: white;
+  font-size: 0.9rem;
+  font-weight: bold;
+  border-radius: 13px;
+  padding: 2px 6px;
+  line-height: 1;
+  white-space: nowrap;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 10;
 }
