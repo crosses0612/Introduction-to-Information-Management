@@ -583,6 +583,7 @@ async function handleUpdateProductAndRecipe(productId, e) {
               isSubmitting={isSubmitting}
               onSubmit={handleOrderSubmit}
               resetToken={orderFormResetToken}
+              notifyError={notifyError}
             />
           )}
 
