@@ -77,6 +77,12 @@ export default function App() {
   const [editingProductId, setEditingProductId] = useState(null);
   const [productEditForm, setProductEditForm] = useState({ name: "", description: "", price: "", recipe: [] });
 
+  const [vendorTabsOrder, setVendorTabsOrder] = useState(() => {
+    const saved = localStorage.getItem("vendorTabsOrder");
+    return saved ? JSON.parse(saved) : vendorTabs.map(t => t[0]);
+  });
+  const [draggedTab, setDraggedTab] = useState(null);
+
   const isVendor = user?.role === "vendor";
   const isCustomer = user?.role === "customer";
 
@@ -348,7 +354,36 @@ async function handleUpdateProductAndRecipe(productId, e) {
     }, { successMessage: "原料已刪除" });
   }
 
-  const tabs = isCustomer ? customerTabs : isVendor ? vendorTabs : [];
+  // 拖拽標籤排序功能
+  function handleDragStart(key) {
+    setDraggedTab(key);
+  }
+
+  function handleDragOver(e) {
+    e.preventDefault();
+  }
+
+  function handleDrop(targetKey) {
+    if (!draggedTab || draggedTab === targetKey) {
+      setDraggedTab(null);
+      return;
+    }
+
+    const draggedIndex = vendorTabsOrder.indexOf(draggedTab);
+    const targetIndex = vendorTabsOrder.indexOf(targetKey);
+    
+    const newOrder = [...vendorTabsOrder];
+    newOrder.splice(draggedIndex, 1);
+    newOrder.splice(targetIndex, 0, draggedTab);
+    
+    setVendorTabsOrder(newOrder);
+    localStorage.setItem("vendorTabsOrder", JSON.stringify(newOrder));
+    setDraggedTab(null);
+  }
+
+  const tabs = isCustomer ? customerTabs : isVendor 
+    ? vendorTabsOrder.map(key => vendorTabs.find(t => t[0] === key)) 
+    : [];
 
   return (
     <div className="page">
@@ -454,6 +489,12 @@ async function handleUpdateProductAndRecipe(productId, e) {
                   className={activeTab === key ? "active" : ""}
                   onClick={() => setActiveTab(key)}
                   disabled={isSubmitting}
+                  draggable={isVendor}
+                  onDragStart={() => isVendor && handleDragStart(key)}
+                  onDragOver={(e) => isVendor && handleDragOver(e)}
+                  onDrop={() => isVendor && handleDrop(key)}
+                  style={isVendor && draggedTab === key ? { opacity: 0.5, cursor: "grabbing" } : isVendor ? { cursor: "grab" } : undefined}
+                  title={isVendor ? "拖拽可重排順序" : undefined}
                 >
                   {label}
                 </button>
