@@ -12,10 +12,6 @@ import OrderCard from "@/components/OrderCard";
 import VendorSettingsForm from "@/components/VendorSettingsForm";
 import { formatDateTime } from "@/lib/format";
 
-function formatRecipeLine(r) {
-  const kg = r.usageKg ?? r.ratio;
-  return `${r.materialName} ${kg} kg`;
-}
 const DEFAULT_UNITS = ["公斤 (kg)", "公克 (g)", "磅 (lb)", "公升 (L)", "加侖 (gal)", "桶", "包", "罐"];
 const emptyProduct = { name: "", description: "", price: "", isActive: true }; // price 改為 ""
 const emptyMaterial = { name: "", stock: "", unit: "公斤", lowStockThreshold: 10 }; // stock 改為 ""
@@ -34,7 +30,6 @@ export default function App() {
   const [orders, setOrders] = useState([]);
   const [pendingOrders, setPendingOrders] = useState([]);
   const [historyOrders, setHistoryOrders] = useState([]);
-  const [reminders, setReminders] = useState([]);
   const [orderFormResetToken, setOrderFormResetToken] = useState(0);
   const [stats, setStats] = useState({ topProducts: [], customerFrequency: [] });
   const [pendingAlert, setPendingAlert] = useState({ pendingCount: 0, threshold: 5, warning: false });
@@ -42,7 +37,6 @@ export default function App() {
   const [authForm, setAuthForm] = useState({ name: "", username: "", password: "", phone: "" });
   const [productForm, setProductForm] = useState(emptyProduct);
   const [materialForm, setMaterialForm] = useState(emptyMaterial);
-  const [recipeEditor, setRecipeEditor] = useState({ productId: "", materialId: "", ratio: "" });
   const [activeTab, setActiveTab] = useState("order");
   const [materialEdits, setMaterialEdits] = useState({});
   const [inboundForm, setInboundForm] = useState({ materialId: "", quantity: "", note: "" });
@@ -61,10 +55,6 @@ export default function App() {
   const [editCustomUnitInput, setEditCustomUnitInput] = useState("");
   const [editingProductId, setEditingProductId] = useState(null);
   const [productEditForm, setProductEditForm] = useState({ name: "", description: "", price: "", recipe: [] });
-  const [vendorTabsOrder, setVendorTabsOrder] = useState(() => {
-    const saved = localStorage.getItem("vendorTabsOrder");
-    return saved ? JSON.parse(saved) : vendorTabs.map(t => t[0]);
-  });
   const [custTabs, setCustTabs] = useState([
     ["order", "下單"],
     ["reminders", "交貨日提醒"],
@@ -82,6 +72,20 @@ export default function App() {
     ["profile", "個人資料"]
   ]);
 
+  // 新增：記錄哪些訂單編號是被「一鍵清除」掃進去的
+  const [clearedExpiredIds, setClearedExpiredIds] = useState(() => {
+    if (typeof window !== "undefined") {
+      const raw = localStorage.getItem("cleared_expired_ids");
+      return raw ? JSON.parse(raw) : [];
+    }
+    return [];
+  });
+
+  // 當名單改變時，同步寫入快取
+  useEffect(() => {
+    localStorage.setItem("cleared_expired_ids", JSON.stringify(clearedExpiredIds));
+  }, [clearedExpiredIds]);
+
   const [draggedMainTabIdx, setDraggedMainTabIdx] = useState(null);
 
   const [materialSubTabs, setMaterialSubTabs] = useState([
@@ -91,6 +95,8 @@ export default function App() {
     { key: "stats", label: "原料消耗統計" },
     { key: "history", label: "進出貨紀錄" }
   ]);
+  const [vendorAlertDays, setVendorAlertDays] = useState(3);
+  const [customerAlertDays, setCustomerAlertDays] = useState(3);
 
   const [activeMaterialSubTab, setActiveMaterialSubTab] = useState("list");
 
@@ -114,23 +120,20 @@ export default function App() {
     setPendingAlert(alertData);
 
     if (isCustomer) {
-      const [myOrders, myReminders] = await Promise.all([api.getMyOrders(), api.getReminders()]);
+      const myOrders = await api.getMyOrders();
       setOrders(myOrders);
-      setReminders(myReminders);
     }
 
     if (isVendor) {
-      const [materialData, pending, history, statsData, vendorReminders] = await Promise.all([
+      const [materialData, pending, history, statsData] = await Promise.all([
         api.getMaterials(),
         api.getVendorOrders("pending"),
         api.getVendorOrders("history"),
-        api.getStats(),
-        api.getReminders()
+        api.getStats()
       ]);
       setMaterials(materialData);
       setPendingOrders(pending);
       setHistoryOrders(history);
-      setReminders(vendorReminders);
       setStats(statsData);
     }
   }
@@ -209,7 +212,6 @@ export default function App() {
     setOrders([]);
     setPendingOrders([]);
     setHistoryOrders([]);
-    setReminders([]);
     setStats({ topProducts: [], customerFrequency: [] });
     setMaterials([]);
     setMovements([]);
@@ -225,7 +227,7 @@ export default function App() {
       await api.createOrder(payload);
       setOrderFormResetToken((t) => t + 1);
       await refreshCoreData();
-    }, { successMessage: "訂單送出成功，等待廠商確認" });
+    }, { successMessage: "訂單送出成功，在廠商確認前可於訂單紀錄中取消" });
   }
 
   async function completeOrder(id) {
@@ -261,7 +263,7 @@ export default function App() {
     e.preventDefault();
     const isDuplicate = materials.some(m => m.name.trim() === materialForm.name.trim());
     if (isDuplicate) {
-      notifyError("新增失敗：原料名稱「" + materialForm.name + "」已存在，請確認是否重疊！");
+      notifyError("新增失敗：原料名稱「" + materialForm.name + "」已存在，請確認是否重複！");
       return;
     }
     await runAction(async () => {
@@ -281,20 +283,20 @@ export default function App() {
     }, { successMessage: "原料已新增" });
   }
 
-async function handleUpdateProductAndRecipe(productId, e) {
-  e.preventDefault();
-  await runAction(async () => {
-    // 呼叫後端 API 同時更新商品基本資料與配方（視你後端 API 調整，或分兩支 API 跑 Promise.all）
-    await api.updateProduct(productId, {
-      name: productEditForm.name,
-      description: productEditForm.description,
-      price: Number(productEditForm.price),
-    });
-    await api.updateRecipe(productId, productEditForm.recipe);
-    setEditingProductId(null);
-    await refreshCoreData();
-  }, { successMessage: "商品與配方已同步更新" });
-}
+  async function handleUpdateProductAndRecipe(productId, e) {
+    e.preventDefault();
+    await runAction(async () => {
+      // 呼叫後端 API 同時更新商品基本資料與配方（視你後端 API 調整，或分兩支 API 跑 Promise.all）
+      await api.updateProduct(productId, {
+        name: productEditForm.name,
+        description: productEditForm.description,
+        price: Number(productEditForm.price),
+      });
+      await api.updateRecipe(productId, productEditForm.recipe);
+      setEditingProductId(null);
+      await refreshCoreData();
+    }, { successMessage: "商品與配方已同步更新" });
+  }
 
   async function confirmOrder(id) {
     await runAction(
@@ -306,9 +308,6 @@ async function handleUpdateProductAndRecipe(productId, e) {
       {
         successMessage: (result) => {
           let msg = "訂單已確認，客戶首頁將顯示交貨提醒";
-          if (result.lowStockMaterials?.length) {
-            msg += `（低庫存：${result.lowStockMaterials.map((m) => m.name).join("、")}）`;
-          }
           return msg;
         }
       }
@@ -374,7 +373,7 @@ async function handleUpdateProductAndRecipe(productId, e) {
 
     // 2. 如果被訂單綁定了，直接阻斷，不讓後端報錯
     if (isBoundToOrder) {
-      alert("無法刪除商品！\n\n因為此商品目前已存在於客戶的訂單紀錄中，因此無法刪除。\n若不繼續販售，建議點選「編輯商品與配方」\n將名稱加上 (已下架/停售) 即可。");
+      alert("無法刪除商品！\n\n因為此商品目前已存在於客戶的訂單紀錄中，因此無法刪除。\n若不繼續販售，請在商品列中對應商品按下停售商品鍵。");
       return;
     }
 
@@ -396,6 +395,32 @@ async function handleUpdateProductAndRecipe(productId, e) {
       await api.deleteMaterial(id);
       await refreshCoreData();
     }, { successMessage: "原料已刪除" });
+  }
+
+  async function clearAllExpiredOrders() {
+    const now = new Date();
+    const expiredIds = historyOrders
+      .filter(o => o.status === "confirmed")
+      .filter(o => {
+        const time = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+        return time && new Date(time) < now;
+      })
+      .map(o => o.id);
+
+    if (expiredIds.length === 0) {
+      alert("目前沒有任何已確認的過期訂單。");
+      return;
+    }
+
+    if (!window.confirm("提醒：會將目前交貨日提醒中的所有過期訂單\n全數移到訂單紀錄『已過期』分項中\n請先檢查過期訂單中是否有已完成訂單但只是尚未標註完成！\n\n確定要進行清除嗎？")) {
+      return;
+    }
+
+    await runAction(async () => {
+      setClearedExpiredIds(prev => [...new Set([...prev, ...expiredIds])]);
+      await Promise.all(expiredIds.map(id => api.completeOrder(id))); 
+      await refreshCoreData();
+    }, { successMessage: "所有過期訂單已成功清除！" });
   }
 
   const tabs = isCustomer ? custTabs : isVendor ? vendTabs : [];
@@ -503,27 +528,35 @@ async function handleUpdateProductAndRecipe(productId, e) {
           {(isCustomer || isVendor) && (
             <section className="tabs">
               {tabs.map(([key, label], idx) => {
-                // 1. 在迴圈內部動態計算該標籤目前應有的紅點數量
                 let badgeCount = 0;
 
                 if (isVendor) {
                   if (key === "orders") {
-                    // 商家「訂單確認」：計算 pending (待處理) 的單子數
                     badgeCount = pendingOrders.length;
                   } else if (key === "reminders") {
-                    // 商家「交貨日提醒」：計算 historyOrders 裡面 confirmed (已確認) 的單子數
-                    badgeCount = historyOrders.filter(o => o.status === "confirmed").length;
+                    badgeCount = historyOrders.filter(o => {
+                      if (o.status !== "confirmed") return false;
+                      const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+                      if (!deliveryTime) return false;
+                      const diffMs = new Date(deliveryTime) - new Date();
+                      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+                      return diffDays >= 0 && diffDays <= vendorAlertDays;
+                    }).length;
                   }
                 }
 
                 if (isCustomer) {
                   if (key === "reminders") {
-                    // 客戶「交貨日提醒」：計算 orders 裡面 confirmed (已確認) 的單子數
-                    badgeCount = orders.filter(o => o.status === "confirmed").length;
+                    badgeCount = orders.filter(o => {
+                      if (o.status !== "confirmed") return false;
+                      const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+                      if (!deliveryTime) return false;
+                      const diffMs = new Date(deliveryTime) - new Date();
+                      const diffDays = diffMs / (1000 * 60 * 60 * 24);
+                      return diffDays >= 0 && diffDays <= customerAlertDays;
+                    }).length;
                   }
                 }
-
-                // 2. 渲染可拖曳按鈕
                 return (
                   <button 
                     key={key} 
@@ -589,15 +622,20 @@ async function handleUpdateProductAndRecipe(productId, e) {
 
           {isCustomer && activeTab === "reminders" && (
             <RemindersList 
-              // 捨棄結構不完整的 reminders，直接拿客戶自己最完整的 orders 清單
-              // 過濾出狀態為 "confirmed"（廠商已確認、待交貨）的訂單作為提醒來源
               reminders={orders.filter(o => o.status === "confirmed")} 
               products={products}
+              alertDays={customerAlertDays}
+              onAlertDaysChange={setCustomerAlertDays}
             />
           )}
 
           {isCustomer && activeTab === "orders" && (
-            <CustomerOrders orders={orders} isSubmitting={isSubmitting} onCancel={cancelOrder} />
+            <CustomerOrders 
+              orders={orders}
+              isSubmitting={isSubmitting}
+              onCancel={cancelOrder}
+              clearedExpiredIds={clearedExpiredIds}
+            />
           )}
 
           {isCustomer && activeTab === "profile" && (
@@ -1198,7 +1236,6 @@ async function handleUpdateProductAndRecipe(productId, e) {
           {isVendor && activeTab === "orderHistory" && (
             <section className="card">
               <h2>訂單紀錄</h2>
-              {/* 新增商家專用的狀態切換頁籤 */}
               <div className="tabs subTabs">
                 <button 
                   type="button" 
@@ -1224,22 +1261,43 @@ async function handleUpdateProductAndRecipe(productId, e) {
                 >
                   已取消
                 </button>
+                <button 
+                  type="button" 
+                  className={vendorHistoryTab === "expired" ? "active" : ""} 
+                  onClick={() => setVendorHistoryTab("expired")} 
+                  disabled={isSubmitting}
+                >
+                  已過期
+                </button>
               </div>
 
-              {/* 根據選擇的頁籤過濾訂單 */}
-              {historyOrders.filter((o) => o.status === vendorHistoryTab).length === 0 ? (
-                <p>此分類尚無歷史訂單。</p>
-              ) : (
-                historyOrders
-                  .filter((o) => o.status === vendorHistoryTab)
-                  .map((o) => (
-                    <OrderCard 
-                      key={o.id} 
-                      order={o} 
-                      actions={null} 
-                    />
+              {(() => {
+                const now = new Date();
+                
+                const filteredOrders = historyOrders.filter((o) => {
+                  const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+                  const isOverdue = deliveryTime && new Date(deliveryTime) < now;
+                  const isSweptByClearButton = clearedExpiredIds.includes(o.id);
+
+                  if (vendorHistoryTab === "expired") {
+                    return (o.status === "confirmed" && isOverdue) || (o.status === "completed" && isSweptByClearButton);
+                  } else if (vendorHistoryTab === "completed") {
+                    return o.status === "completed" && !isSweptByClearButton;
+                  } else if (vendorHistoryTab === "confirmed") {
+                    return o.status === "confirmed" && !isOverdue;
+                  } else {
+                    return o.status === vendorHistoryTab;
+                  }
+                });
+
+                return filteredOrders.length === 0 ? (
+                  <p>此分類尚無歷史訂單。</p>
+                ) : (
+                  filteredOrders.map((o) => (
+                    <OrderCard key={o.id} order={o} actions={null} />
                   ))
-              )}
+                );
+              })()}
             </section>
           )}
 
@@ -1248,8 +1306,11 @@ async function handleUpdateProductAndRecipe(productId, e) {
               reminders={historyOrders.filter(o => o.status === "confirmed")} 
               products={products} 
               showCustomer 
-              onComplete={completeOrder} // 傳遞標記完成功能
-              isSubmitting={isSubmitting} // 傳遞提交鎖定狀態
+              onComplete={completeOrder}
+              isSubmitting={isSubmitting}
+              alertDays={vendorAlertDays}
+              onAlertDaysChange={setVendorAlertDays}
+              onClearExpired={clearAllExpiredOrders}
             />
           )}
 
