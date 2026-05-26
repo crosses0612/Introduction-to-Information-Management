@@ -52,7 +52,8 @@ export default function RemindersList({
           )}
         </div>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "20px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: "8px", marginBottom: "15px", background: "#f8fbfa", padding: "16px", borderRadius: "12px", border: "1px solid var(--border)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: "6px", marginBottom: "0px" }}>
         <h3>訂單交貨日到期警示設定：</h3>
         <input 
           type="number" 
@@ -66,7 +67,6 @@ export default function RemindersList({
           style={{ width: "60px", padding: "8px", textAlign: "center", borderRadius: "8px", marginBottom: 15 }}
         />
         <h3>日內訂單</h3>
-
         {isEditingDays && (
           <div style={{ display: "inline-flex", gap: "5px", marginLeft: "4px" }}>
             <button 
@@ -92,6 +92,23 @@ export default function RemindersList({
           </div>
         )}
       </div>
+      <div style={{ fontSize: "0.9rem", display: "flex", alignItems: "center", gap: "6px"}}>
+        <h3>當前設定下，警示訂單共計：</h3>
+        <strong style={{ color: "var(--danger)", fontSize: "1.1rem", marginBottom: "15px" }}>
+          {(() => {
+            const now = new Date();
+            const targetDays = isEditingDays ? (Number(tempDays) || alertDays) : alertDays;
+            return (reminders || []).filter(o => {
+              const time = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+              if (!time) return false;
+              const diffDays = (new Date(time) - now) / (1000 * 60 * 60 * 24);
+              return diffDays >= 0 && diffDays <= targetDays;
+            }).length;
+          })()}
+        </strong>
+        <h3>筆</h3>
+      </div>
+    </div>
       {sortedReminders.length === 0 ? (
         <p>目前沒有即將到期的已確認訂單。</p>
       ) : (
