@@ -17,7 +17,7 @@ const emptyProduct = { name: "", description: "", price: "", isActive: true }; /
 const emptyMaterial = { name: "", stock: "", unit: "公斤", lowStockThreshold: 10 }; // stock 改為 ""
 
 export default function App() {
-  const { modalOpen, modalMessage, modalType, isSubmitting, closeModal, runAction, notifyError } =
+  const { modalOpen, modalMessage, modalType, isSubmitting, closeModal, runAction, notifyError, runActionNoScroll, notifyErrorNoScroll } =
     useActionFeedback();
 
   const [authMode, setAuthMode] = useState("login");
@@ -210,7 +210,7 @@ export default function App() {
   }, [user?.id, user?.role]);
 
   useEffect(() => {
-    refreshCoreData().catch((err) => notifyError(err.message));
+    refreshCoreData().catch((err) => notifyErrorNoScroll(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
@@ -319,7 +319,7 @@ export default function App() {
   }
 
   async function handleOrderSubmit(payload) {
-    await runAction(async () => {
+    await runActionNoScroll(async () => {
       if (!payload.deliveryAt || !payload.items?.length) {
         throw new Error("請選擇交貨日時間並至少選擇一項商品");
       }
@@ -330,7 +330,7 @@ export default function App() {
   }
 
   async function completeOrder(id) {
-    await runAction(async () => {
+    await runActionNoScroll(async () => {
       await api.completeOrder(id);
       await refreshCoreData();
     }, { successMessage: "訂單已標記為已完成" });
@@ -341,13 +341,13 @@ export default function App() {
     
     // 新增防呆：檢查價格是否為空字串或未填
     if (productForm.price === "" || productForm.price === undefined || productForm.price === null) {
-      notifyError("新增失敗：請輸入商品價格！");
+      notifyErrorNoScroll("新增失敗：請輸入商品價格！");
       return;
     }
     // 前端直接阻擋名稱重複
     const isDuplicate = products.some(p => p.name.trim() === productForm.name.trim());
     if (isDuplicate) {
-      notifyError("新增失敗：商品名稱「" + productForm.name + "」已存在，請使用其他名稱！");
+      notifyErrorNoScroll("新增失敗：商品名稱「" + productForm.name + "」已存在，請使用其他名稱！");
       return;
     }
 
@@ -384,7 +384,7 @@ export default function App() {
 
   async function handleUpdateProductAndRecipe(productId, e) {
     e.preventDefault();
-    await runAction(async () => {
+    await runActionNoScroll(async () => {
       // 呼叫後端 API 同時更新商品基本資料與配方（視你後端 API 調整，或分兩支 API 跑 Promise.all）
       await api.updateProduct(productId, {
         name: productEditForm.name,
@@ -398,7 +398,7 @@ export default function App() {
   }
 
   async function confirmOrder(id) {
-    await runAction(
+    await runActionNoScroll(
       async () => {
         const result = await api.confirmOrder(id);
         await refreshCoreData();
@@ -417,7 +417,7 @@ export default function App() {
     if (!window.confirm("確定要取消這筆訂單嗎？此動作將無法復原！")) {
       return;
     }
-    await runAction(async () => {
+    await runActionNoScroll(async () => {
       await api.cancelOrder(id);
       await refreshCoreData();
     }, { successMessage: "訂單已成功取消" });
@@ -426,7 +426,7 @@ export default function App() {
   async function saveMaterial(id) {
     const edit = materialEdits[id];
     if (!edit) return;
-    await runAction(async () => {
+    await runActionNoScroll(async () => {
       await api.updateMaterial(id, {
         name: edit.name,
         stock: nonNegativeFromInput(edit.stock),
@@ -480,7 +480,7 @@ export default function App() {
       return;
     }
 
-    await runAction(async () => {
+    await runActionNoScroll(async () => {
       await api.deleteProduct(id);
       await refreshCoreData();
     }, { successMessage: "商品已下架刪除" });
@@ -490,7 +490,7 @@ export default function App() {
     if (!window.confirm("確定要刪除此原料嗎？此動作將無法復原！")) {
       return;
     }
-    await runAction(async () => {
+    await runActionNoScroll(async () => {
       await api.deleteMaterial(id);
       await refreshCoreData();
     }, { successMessage: "原料已刪除" });
@@ -515,7 +515,7 @@ export default function App() {
       return;
     }
 
-    await runAction(async () => {
+    await runActionNoScroll(async () => {
       setClearedExpiredIds(prev => [...new Set([...prev, ...expiredIds])]);
       await Promise.all(expiredIds.map(id => api.completeOrder(id))); 
       await refreshCoreData();
@@ -837,7 +837,7 @@ export default function App() {
                                   }
 
                                   // 呼叫現有的 updateProduct 接口更新名稱
-                                  await runAction(async () => {
+                                  await runActionNoScroll(async () => {
                                     await api.updateProduct(p.id, {
                                       name: newName,
                                       description: p.description,
