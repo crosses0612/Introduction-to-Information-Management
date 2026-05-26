@@ -55,22 +55,32 @@ export default function App() {
   const [editCustomUnitInput, setEditCustomUnitInput] = useState("");
   const [editingProductId, setEditingProductId] = useState(null);
   const [productEditForm, setProductEditForm] = useState({ name: "", description: "", price: "", recipe: [] });
-  const [custTabs, setCustTabs] = useState([
-    ["order", "下單"],
-    ["reminders", "交貨日提醒"],
-    ["orders", "訂單紀錄"],
-    ["profile", "個人資料"]
-  ]);
+  const [custTabs, setCustTabs] = useState(() => {
+    const defaultTabs = [
+      ["order", "下單"],
+      ["reminders", "交貨日提醒"],
+      ["orders", "訂單紀錄"],
+      ["profile", "個人資料"]
+    ];
+    if (typeof window === "undefined") return defaultTabs;
+    const raw = localStorage.getItem("cust_tabs_order");
+    return raw ? JSON.parse(raw) : defaultTabs;
+  });
 
-  const [vendTabs, setVendTabs] = useState([
-    ["products", "商品與配方"],
-    ["materials", "原料管理"],
-    ["orders", "訂單確認"],
-    ["orderHistory", "訂單紀錄"],
-    ["reminders", "交貨日提醒"],
-    ["stats", "統計數據"],
-    ["profile", "個人資料"]
-  ]);
+  const [vendTabs, setVendTabs] = useState(() => {
+    const defaultTabs = [
+      ["products", "商品與配方"],
+      ["materials", "原料管理"],
+      ["orders", "訂單確認"],
+      ["orderHistory", "訂單紀錄"],
+      ["reminders", "交貨日提醒"],
+      ["stats", "統計數據"],
+      ["profile", "個人資料"]
+    ];
+    if (typeof window === "undefined") return defaultTabs;
+    const raw = localStorage.getItem("vend_tabs_order");
+    return raw ? JSON.parse(raw) : defaultTabs;
+  });
 
   // 新增：記錄哪些訂單編號是被「一鍵清除」掃進去的
   const [clearedExpiredIds, setClearedExpiredIds] = useState(() => {
@@ -86,15 +96,71 @@ export default function App() {
     localStorage.setItem("cleared_expired_ids", JSON.stringify(clearedExpiredIds));
   }, [clearedExpiredIds]);
 
+
+
   const [draggedMainTabIdx, setDraggedMainTabIdx] = useState(null);
 
-  const [materialSubTabs, setMaterialSubTabs] = useState([
-    { key: "create", label: "新增原料" },
-    { key: "list", label: "原料列表" },
-    { key: "inbound", label: "進貨登錄" },
-    { key: "stats", label: "原料消耗統計" },
-    { key: "history", label: "進出貨紀錄" }
-  ]);
+  const [materialSubTabs, setMaterialSubTabs] = useState(() => {
+    const defaultSubTabs = [
+      { key: "create", label: "新增原料" },
+      { key: "list", label: "原料列表" },
+      { key: "inbound", label: "進貨登錄" },
+      { key: "stats", label: "原料消耗統計" },
+      { key: "history", label: "進出貨紀錄" }
+    ];
+    if (typeof window === "undefined") return defaultSubTabs;
+    const raw = localStorage.getItem("material_sub_tabs_order");
+    return raw ? JSON.parse(raw) : defaultSubTabs;
+  });
+
+  // 初始化 tabs 狀態（在 user 身份改變時執行一次）
+  useEffect(() => {
+    if (!user?.id) return;
+    if (user.role === "customer" && user.cust_tabs_order && JSON.stringify(user.cust_tabs_order) !== JSON.stringify(custTabs)) {
+      setCustTabs(user.cust_tabs_order);
+      try { localStorage.setItem("cust_tabs_order", JSON.stringify(user.cust_tabs_order)); } catch {}
+    }
+    if (user.role === "vendor" && user.vend_tabs_order && JSON.stringify(user.vend_tabs_order) !== JSON.stringify(vendTabs)) {
+      setVendTabs(user.vend_tabs_order);
+      try { localStorage.setItem("vend_tabs_order", JSON.stringify(user.vend_tabs_order)); } catch {}
+    }
+    if (user.material_sub_tabs_order && JSON.stringify(user.material_sub_tabs_order) !== JSON.stringify(materialSubTabs)) {
+      setMaterialSubTabs(user.material_sub_tabs_order);
+      try { localStorage.setItem("material_sub_tabs_order", JSON.stringify(user.material_sub_tabs_order)); } catch {}
+    }
+  }, [user?.id]);
+
+  // 當 tabs 狀態變動時自動同步到後端
+  useEffect(() => {
+    if (!user) return;
+    if (user.role === "customer") {
+      // 更新 localStorage（不 setUser，避免觸發初始化 effect）
+      try {
+        const next = { ...user, cust_tabs_order: custTabs };
+        localStorage.setItem("user", JSON.stringify(next));
+      } catch {}
+      api.updateProfile({ cust_tabs_order: custTabs }).catch(() => {});
+    }
+  }, [custTabs]);
+  useEffect(() => {
+    if (!user) return;
+    if (user.role === "vendor") {
+      try {
+        const next = { ...user, vend_tabs_order: vendTabs };
+        localStorage.setItem("user", JSON.stringify(next));
+      } catch {}
+      api.updateProfile({ vend_tabs_order: vendTabs }).catch(() => {});
+    }
+  }, [vendTabs]);
+  useEffect(() => {
+    if (!user) return;
+    try {
+      const next = { ...user, material_sub_tabs_order: materialSubTabs };
+      localStorage.setItem("user", JSON.stringify(next));
+    } catch {}
+    api.updateProfile({ material_sub_tabs_order: materialSubTabs }).catch(() => {});
+  }, [materialSubTabs]);
+
   const [vendorAlertDays, setVendorAlertDays] = useState(3);
   const [customerAlertDays, setCustomerAlertDays] = useState(3);
 
@@ -148,6 +214,27 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
+  // 當有 user（包含從 localStorage 讀取）時，嘗試從後端取得完整 profile，避免 local user 缺少 tabs 欄位
+  useEffect(() => {
+    if (!user?.id) return;
+    let cancelled = false;
+    api
+      .getProfile()
+      .then((profile) => {
+        if (cancelled) return;
+        // 若 profile 含有額外欄位（例如 cust_tabs_order），則合併並更新 local user
+        const merged = { ...user, ...profile };
+        localStorage.setItem("user", JSON.stringify(merged));
+        setUser(merged);
+      })
+      .catch(() => {
+        /* 忽略錯誤，保持現有 user */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
   useEffect(() => {
     const edits = {};
     for (const m of materials) {
@@ -199,8 +286,17 @@ export default function App() {
           ? await api.register(authForm)
           : await api.login({ username: authForm.username, password: authForm.password });
       localStorage.setItem("token", data.token);
+      // 先儲存基本登入回傳的 user，再向後端取得完整 profile（包含 tabs 設定）
       localStorage.setItem("user", JSON.stringify(data.user));
-      setUser(data.user);
+      // 嘗試取得完整 profile，若成功則合併並儲存
+      try {
+        const full = await api.getProfile();
+        const merged = { ...data.user, ...full };
+        localStorage.setItem("user", JSON.stringify(merged));
+        setUser(merged);
+      } catch (err) {
+        setUser(data.user);
+      }
       setAuthForm({ name: "", username: "", password: "", phone: "" });
     }, { successMessage: authMode === "register" ? "註冊成功" : "登入成功" });
   }

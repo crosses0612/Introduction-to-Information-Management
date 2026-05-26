@@ -10,7 +10,10 @@ function safeUser(row) {
     name: row.name,
     username: row.username,
     role: row.role,
-    phone: row.phone ?? null
+    phone: row.phone ?? null,
+    cust_tabs_order: row.cust_tabs_order ?? null,
+    vend_tabs_order: row.vend_tabs_order ?? null,
+    material_sub_tabs_order: row.material_sub_tabs_order ?? null
   };
 }
 
@@ -18,7 +21,7 @@ export async function GET(request) {
   try {
     const authUser = getUserFromRequest(request);
     const result = await query(
-      "SELECT id, name, username, role, phone FROM users WHERE id = $1",
+      `SELECT id, name, username, role, phone, cust_tabs_order, vend_tabs_order, material_sub_tabs_order FROM users WHERE id = $1`,
       [authUser.sub]
     );
     if (!result.rows.length) {
@@ -34,14 +37,15 @@ export async function PUT(request) {
   try {
     const authUser = getUserFromRequest(request);
     const body = await request.json();
-    const { username, phone, password, currentPassword } = body;
+    const { username, phone, password, currentPassword, cust_tabs_order, vend_tabs_order, material_sub_tabs_order } = body;
 
     const hasUsername =
       username !== undefined && username !== null && String(username).trim() !== "";
     const hasPhone = phone !== undefined;
     const hasPassword = password !== undefined && String(password).trim() !== "";
 
-    if (!hasUsername && !hasPhone && !hasPassword) {
+    const hasTabsOrder = cust_tabs_order !== undefined || vend_tabs_order !== undefined || material_sub_tabs_order !== undefined;
+    if (!hasUsername && !hasPhone && !hasPassword && !hasTabsOrder) {
       return NextResponse.json({ message: "請至少更新一項資料" }, { status: 400 });
     }
 
@@ -86,10 +90,29 @@ export async function PUT(request) {
     const newPhone = hasPhone ? (phone == null ? null : String(phone).trim()) : user.phone;
     const newPasswordHash = hasPassword ? bcrypt.hashSync(password, 10) : user.password_hash;
 
+    // 動態組合 SQL
+    const fields = ["username", "phone", "password_hash"];
+    const values = [newUsername, newPhone || null, newPasswordHash];
+    if (cust_tabs_order !== undefined) {
+      fields.push("cust_tabs_order");
+      values.push(cust_tabs_order);
+    }
+    if (vend_tabs_order !== undefined) {
+      fields.push("vend_tabs_order");
+      values.push(vend_tabs_order);
+    }
+    if (material_sub_tabs_order !== undefined) {
+      fields.push("material_sub_tabs_order");
+      values.push(material_sub_tabs_order);
+    }
+    fields.push("id");
+    values.push(user.id);
+
+    const setClause = fields.slice(0, -1).map((f, i) => `${f} = $${i + 1}`).join(", ");
     const result = await query(
-      `UPDATE users SET username = $1, phone = $2, password_hash = $3 WHERE id = $4
-       RETURNING id, name, username, role, phone`,
-      [newUsername, newPhone || null, newPasswordHash, user.id]
+      `UPDATE users SET ${setClause} WHERE id = $${fields.length}
+       RETURNING id, name, username, role, phone, cust_tabs_order, vend_tabs_order, material_sub_tabs_order`,
+      values
     );
     const updated = safeUser(result.rows[0]);
     return NextResponse.json({ token: signToken(updated), user: updated });
