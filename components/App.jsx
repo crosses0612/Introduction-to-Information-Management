@@ -82,7 +82,6 @@ export default function App() {
     return raw ? JSON.parse(raw) : defaultTabs;
   });
 
-  // 新增：記錄哪些訂單編號是被「一鍵清除」掃進去的
   const [clearedExpiredIds, setClearedExpiredIds] = useState(() => {
     if (typeof window !== "undefined") {
       const raw = localStorage.getItem("cleared_expired_ids");
@@ -91,7 +90,6 @@ export default function App() {
     return [];
   });
 
-  // 當名單改變時，同步寫入快取
   useEffect(() => {
     localStorage.setItem("cleared_expired_ids", JSON.stringify(clearedExpiredIds));
   }, [clearedExpiredIds]);
@@ -170,7 +168,9 @@ export default function App() {
 
   const isVendor = user?.role === "vendor";
   const isCustomer = user?.role === "customer";
-
+  const [isNoticeOpen, setIsNoticeOpen] = useState(false);
+  const [hidePendingAlert, setHidePendingAlert] = useState(false);
+  const [hideCycleAlert, setHideCycleAlert] = useState(false);
   useEffect(() => {
     const handleAuthExpired = () => logout();
     window.addEventListener("auth:expired", handleAuthExpired);
@@ -313,6 +313,9 @@ export default function App() {
     setMovements([]);
     setConsumptionStats([]);
     setMaterialEdits({});
+    setHidePendingAlert(false);
+    setHideCycleAlert(false);
+    setIsNoticeOpen(false);
   }
 
   async function handleOrderSubmit(payload) {
@@ -522,6 +525,41 @@ export default function App() {
   const tabs = isCustomer ? custTabs : isVendor ? vendTabs : [];
   const setTabs = isCustomer ? setCustTabs : isVendor ? setVendTabs : () => {};
 
+  const nearestOrderNotice = useMemo(() => {
+  const targetOrders = isVendor 
+    ? historyOrders.filter(o => o.status === "confirmed")
+    : isCustomer 
+      ? orders.filter(o => o.status === "confirmed")
+      : [];
+
+  const now = new Date();
+  const unexpired = targetOrders
+    .map(o => {
+      const time = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+      return { ...o, parsedTime: time ? new Date(time) : null };
+    })
+    .filter(o => o.parsedTime && o.parsedTime >= now)
+    .sort((a, b) => a.parsedTime - b.parsedTime);
+
+  if (unexpired.length === 0) return null;
+  
+  const next = unexpired[0];
+  const diffHours = (next.parsedTime - now) / (1000 * 60 * 60);
+  let timeLeftStr = diffHours <= 24 
+    ? `剩餘不到 ${Math.ceil(diffHours)} 小時！`
+    : `剩餘 ${Math.ceil(diffHours / 24)} 天`;
+
+  return {
+    id: next.id,
+    customer: next.customer_name || next.customerName || next.user_name || "未知客戶",
+    phone: next.customer_phone || next.customerPhone || "無",
+    deliveryMethod: next.delivery_method ?? next.deliveryMethod ?? "來店自取",
+    address: next.delivery_address ?? next.deliveryAddress ?? "",
+    timeStr: formatDateTime(next.delivery_at ?? next.deliveryAt ?? next.delivery_date),
+    timeLeftStr
+  };
+}, [isVendor, isCustomer, historyOrders, orders]);
+
   return (
     <div className="page">
       <FeedbackModal
@@ -549,7 +587,6 @@ export default function App() {
                   placeholder="電話（選填）" 
                   value={authForm.phone} 
                   onChange={(e) => {
-                    // 允許數字、減號 -、星號 *，其餘字元直接過濾掉不給輸入
                     const filteredValue = e.target.value.replace(/[^0-9\-*]/g, "");
                     setAuthForm({ ...authForm, phone: filteredValue });
                   }} 
@@ -595,31 +632,6 @@ export default function App() {
               登出
             </button>
           </section>
-
-          {pendingAlert.warning && (
-            <section className="alert">
-              訂單量偏高（目前 {pendingAlert.pendingCount} 筆待處理），系統提醒客戶等待時間可能較長。
-            </section>
-          )}
-
-          {isVendor && lowStockMaterials.length > 0 && (
-            <section className="alert">
-              原料庫存不足：{lowStockMaterials.map((m) => `${m.name}（${m.stock} ${m.unit}）`).join("、")}
-            </section>
-          )}
-
-          {isVendor && stats.customerFrequency && stats.customerFrequency.filter(c => {
-            return c.avg_cycle_days !== null && c.avg_cycle_days <= 3; 
-          }).length > 0 && (
-            <section className="alert" style={{ borderLeft: "5px solid var(--warning)", background: "#fff9f0" }}>
-               <strong>客戶下單週期提醒：</strong>
-              {stats.customerFrequency
-                .filter(c => c.avg_cycle_days !== null && c.avg_cycle_days <= 3)
-                .map((c) => `${c.name}（預計 ${c.avg_cycle_days} 天內再度下單）`)
-                .join("、")} 
-              ，請提早備妥原料與產能。
-            </section>
-          )}
 
           {(isCustomer || isVendor) && (
             <section className="tabs">
@@ -1449,6 +1461,106 @@ export default function App() {
             </section>
           )}
         </>
+      )}
+      {user && (
+        <div className="notice-wrapper">
+          {isNoticeOpen && (
+            <div className="notice-panel">
+              <div className="notice-header">
+                <span className="notice-title">系統即時通知中心</span>
+                <button type="button" className="notice-close-x" onClick={() => setIsNoticeOpen(false)}>✖</button>
+              </div>
+
+              {nearestOrderNotice ? (
+                <div className="notice-item-red">
+                  <div className="notice-item-red-header">
+                    <span>最近的交貨任務：</span>
+                    <span>{nearestOrderNotice.timeLeftStr}</span>
+                  </div>
+                  <div style={{ fontSize: "0.9rem", lineHeight: "1.5" }}>
+                    <div><strong>訂單編號：</strong> #{nearestOrderNotice.id}</div>
+                    {isVendor && (
+                      <>
+                        <div><strong>客戶資訊：</strong> {nearestOrderNotice.customer} / Tel: {nearestOrderNotice.phone}</div>
+                        <div><strong>配送方式：</strong> {nearestOrderNotice.deliveryMethod === "delivery" ? `配送到府 (${nearestOrderNotice.address})` : "來店自取"}</div>
+                      </>
+                    )}
+                    <div><strong>交貨時間：</strong> <span>{nearestOrderNotice.timeStr}</span></div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ padding: "6px", color: "var(--subtext)", fontSize: "0.88rem", textAlign: "center" }}>
+                  目前暫無即將到期的交貨日訂單。
+                </div>
+              )}
+
+              {isVendor && lowStockMaterials.length > 0 && (
+                <div className="notice-item-red">
+                  <div className="notice-item-red-header">
+                    <span>原料庫存不足補貨警戒：</span>
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: "16px", fontSize: "0.85rem", color: "var(--text)" }}>
+                    {lowStockMaterials.map((m) => (
+                      <li key={m.id}>
+                        {m.name}：剩餘 <strong style={{ color: "var(--danger)" }}>{m.stock}</strong> {m.unit}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {isVendor && (
+                <>
+                  {pendingAlert.warning && !hidePendingAlert && (
+                    <div className="notice-item-yellow">
+                      <span className="notice-item-yellow-text"><strong>待確認訂單偏高：</strong>目前 <strong>{pendingAlert.pendingCount}</strong> 筆待確認訂單，請加速審核以免客戶久候。</span>
+                      <button type="button" className="notice-item-dismiss" onClick={() => setHidePendingAlert(true)}>✖</button>
+                    </div>
+                  )}
+
+                  {stats.customerFrequency && stats.customerFrequency.filter(c => c.avg_cycle_days !== null && c.avg_cycle_days <= 3).length > 0 && !hideCycleAlert && (
+                    <div className="notice-item-yellow">
+                      <span className="notice-item-yellow-text">
+                        <strong>下單週期預警：</strong>
+                        <strong>
+                        {stats.customerFrequency
+                          .filter(c => c.avg_cycle_days !== null && c.avg_cycle_days <= 3)
+                          .map(c => c.name).join("、")}
+                        </strong> 預計近期再度訂購，請調配原料產能。
+                      </span>
+                      <button type="button" className="notice-item-dismiss" onClick={() => setHideCycleAlert(true)}>✖</button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {isCustomer && (
+                <>
+                  {pendingAlert.warning && !hideCycleAlert && (
+                    <div className="notice-item-yellow">
+                      <span className="notice-item-yellow-text"><strong>待確認訂單偏高：</strong>目前店家訂單排單較滿，新成立訂單等候確認之時間可能稍長，請多包涵。</span>
+                      <button type="button" className="notice-item-dismiss" onClick={() => setHideCycleAlert(true)}>✖</button>
+                    </div>
+                  )}
+                </>
+              )}
+
+            </div>
+          )}
+
+          <button 
+            type="button"
+            className="notice-toggle-btn"
+            onClick={() => setIsNoticeOpen(!isNoticeOpen)}
+            title="開啟通知中心"
+          >
+            {((isVendor && (lowStockMaterials.length > 0 || (pendingAlert.warning && !hidePendingAlert) || nearestOrderNotice)) || 
+              (isCustomer && (nearestOrderNotice || (pendingAlert.warning && !hidePendingAlert)))) && (
+              <span className="notice-badge-dot" />
+            )}
+          </button>
+
+        </div>
       )}
     </div>
   );
