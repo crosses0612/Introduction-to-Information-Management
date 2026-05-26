@@ -1,8 +1,61 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { nonNegativeFromInput } from "@/lib/numbers";
 import ShopInfo from "@/components/ShopInfo";
 
-export default function OrderForm({ products, isSubmitting, onSubmit, resetToken = 0, notifyError }) {
+const STORAGE_KEYS = {
+  deliveryDate: "draft_deliveryDate",
+  deliveryTime: "draft_deliveryTime",
+  deliveryMethod: "draft_deliveryMethod",
+  deliveryAddress: "draft_deliveryAddress",
+  note: "draft_note",
+  quantities: "draft_quantities",
+};
+
+function safeGetItem(key, fallback = "") {
+  if (typeof window === "undefined") return fallback;
+  try {
+    return window.localStorage.getItem(key) ?? fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function safeSetItem(key, value) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // 可視情況記錄錯誤
+  }
+}
+
+function safeRemoveItem(key) {
+  if (typeof window === "undefined") return;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    // 可視情況記錄錯誤
+  }
+}
+
+function safeParseJSON(raw, fallback) {
+  try {
+    return raw ? JSON.parse(raw) : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+export default function OrderForm({
+  products,
+  isSubmitting,
+  onSubmit,
+  resetToken = 0,
+  notifyError = () => {},
+}) {
+  // 先用預設值，等掛載後再從 localStorage 載入
+  const [isReady, setIsReady] = useState(false);
+
   const [deliveryDate, setDeliveryDate] = useState("");
   const [deliveryTime, setDeliveryTime] = useState("12:00");
   const [deliveryMethod, setDeliveryMethod] = useState("pickup");
@@ -10,7 +63,8 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
   const [note, setNote] = useState("");
   const [quantities, setQuantities] = useState({});
 
-  // 取得今天的日期字串 (YYYY-MM-DD)，用於設定日期的 min 屬性
+  const prevResetTokenRef = useRef(resetToken);
+
   const getTodayString = () => {
     const today = new Date();
     const yyyy = today.getFullYear();
@@ -19,19 +73,84 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
     return `${yyyy}-${mm}-${dd}`;
   };
 
+  // 第一次進到瀏覽器後，讀取草稿
   useEffect(() => {
+    const savedDate = safeGetItem(STORAGE_KEYS.deliveryDate, "");
+    const savedTime = safeGetItem(STORAGE_KEYS.deliveryTime, "12:00");
+    const savedMethod = safeGetItem(STORAGE_KEYS.deliveryMethod, "pickup");
+    const savedAddress = safeGetItem(STORAGE_KEYS.deliveryAddress, "");
+    const savedNote = safeGetItem(STORAGE_KEYS.note, "");
+    const savedQuantities = safeParseJSON(
+      safeGetItem(STORAGE_KEYS.quantities, ""),
+      {}
+    );
+
+    setDeliveryDate(savedDate);
+    setDeliveryTime(savedTime);
+    setDeliveryMethod(savedMethod);
+    setDeliveryAddress(savedAddress);
+    setNote(savedNote);
+    setQuantities(savedQuantities);
+
+    setIsReady(true);
+  }, []);
+
+  // 掛載完成後，變動就即時寫回 localStorage
+  useEffect(() => {
+    if (!isReady) return;
+    safeSetItem(STORAGE_KEYS.deliveryDate, deliveryDate);
+  }, [deliveryDate, isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    safeSetItem(STORAGE_KEYS.deliveryTime, deliveryTime);
+  }, [deliveryTime, isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    safeSetItem(STORAGE_KEYS.deliveryMethod, deliveryMethod);
+  }, [deliveryMethod, isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    safeSetItem(STORAGE_KEYS.deliveryAddress, deliveryAddress);
+  }, [deliveryAddress, isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    safeSetItem(STORAGE_KEYS.note, note);
+  }, [note, isReady]);
+
+  useEffect(() => {
+    if (!isReady) return;
+    safeSetItem(STORAGE_KEYS.quantities, JSON.stringify(quantities));
+  }, [quantities, isReady]);
+
+  // 只有 resetToken「真的變動」時才清除，不會在初次掛載誤刪
+  useEffect(() => {
+    if (!isReady) return;
+
+    if (prevResetTokenRef.current === resetToken) return;
+    prevResetTokenRef.current = resetToken;
+
     setDeliveryDate("");
     setDeliveryTime("12:00");
     setDeliveryMethod("pickup");
     setDeliveryAddress("");
     setNote("");
     setQuantities({});
-  }, [resetToken]);
+
+    safeRemoveItem(STORAGE_KEYS.deliveryDate);
+    safeRemoveItem(STORAGE_KEYS.deliveryTime);
+    safeRemoveItem(STORAGE_KEYS.deliveryMethod);
+    safeRemoveItem(STORAGE_KEYS.deliveryAddress);
+    safeRemoveItem(STORAGE_KEYS.note);
+    safeRemoveItem(STORAGE_KEYS.quantities);
+  }, [resetToken, isReady]);
 
   function handleSubmit(e) {
     e.preventDefault();
 
-    // 1. 檢查是否有選購商品
     const items = Object.entries(quantities)
       .filter(([, qty]) => Number(qty) > 0)
       .map(([productId, qty]) => ({
@@ -44,16 +163,24 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
       return;
     }
 
-    // 2. 檢查交貨時間是否為過去的時間
+    if (!deliveryDate || !deliveryTime) {
+      notifyError("請先選擇交貨日與交貨時間。");
+      return;
+    }
+
     const now = new Date();
-    const selectedDateTime = new Date(`${deliveryDate}T${deliveryTime}`);
+    const selectedDateTime = new Date(`${deliveryDate}T${deliveryTime}:00`);
+
+    if (Number.isNaN(selectedDateTime.getTime())) {
+      notifyError("交貨日期或時間格式不正確。");
+      return;
+    }
 
     if (selectedDateTime < now) {
       notifyError("交貨時間不能早於當前時間，請重新選擇。");
       return;
     }
 
-    // 3. 檢查配送地址
     if (deliveryMethod === "delivery" && !deliveryAddress.trim()) {
       notifyError("選擇配送時，收貨地址不能為空。");
       return;
@@ -61,7 +188,6 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
 
     const deliveryAt = `${deliveryDate}T${deliveryTime}:00`;
 
-    // 通過所有檢查，送出資料
     onSubmit({
       deliveryAt,
       deliveryMethod,
@@ -76,7 +202,6 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
       <ShopInfo />
       <section className="card order-form-shell">
         <h2>下單介面</h2>
-
         <form onSubmit={handleSubmit} className="order-form-layout">
           <div className="order-form-main">
             <div className="order-form-grid-2">
@@ -114,16 +239,20 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
                     : product.name;
 
                   return (
-                    <div key={product.id} className={`product-item${isDiscontinued ? " is-discontinued" : ""}`}>
+                    <div
+                      key={product.id}
+                      className={`product-item${isDiscontinued ? " is-discontinued" : ""}`}
+                    >
                       <div className="product-item-meta">
                         <div className="product-item-name">
-                          {cleanName}
+                          {cleanName}{" "}
                           {isDiscontinued ? (
                             <strong className="product-item-status">(❌ 已停售)</strong>
                           ) : (
                             <strong className="product-item-price">(NT$ {product.price})</strong>
                           )}
                         </div>
+
                         {product.description && (
                           <p className="product-item-description">{product.description}</p>
                         )}
@@ -139,7 +268,10 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
                         onChange={(e) =>
                           setQuantities({
                             ...quantities,
-                            [product.id]: e.target.value === "" ? "" : nonNegativeFromInput(e.target.value),
+                            [product.id]:
+                              e.target.value === ""
+                                ? ""
+                                : nonNegativeFromInput(e.target.value),
                           })
                         }
                         disabled={isSubmitting || isDiscontinued}
@@ -149,7 +281,6 @@ export default function OrderForm({ products, isSubmitting, onSubmit, resetToken
                 })}
               </div>
             </div>
-
           </div>
 
           <aside className="order-form-sidebar">
