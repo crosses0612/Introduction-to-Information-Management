@@ -1006,7 +1006,8 @@ button.iconButton:hover {
   max-height: 400px;
   overflow-y: auto;
 
-  z-index: 1;
+  /* 提升 z-index，避免被 .notice-overlay 擋住 */
+  z-index: 1000;
 }
 
 .notice-header {
@@ -1084,7 +1085,8 @@ button.iconButton:hover {
   display: flex;
   align-items: center;
   justify-content: center;
-  z-index: 2;
+  /* 置於 overlay 之上，便於點擊 */
+  z-index: 1001;
 }
 
 .notice-badge-dot {
