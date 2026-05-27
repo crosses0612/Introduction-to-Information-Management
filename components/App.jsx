@@ -302,7 +302,7 @@ export default function App() {
         setIsNoticeOpen(true);
       }
       setAuthForm({ name: "", username: "", password: "", phone: "" });
-    }, { successMessage: authMode === "register" ? "註冊成功" : "登入成功" });
+    }, { successMessage: authMode === "register" ? "註冊成功" : null });
   }
 
   function logout() {
