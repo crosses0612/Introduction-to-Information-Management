@@ -2134,7 +2134,6 @@ button.link:hover {
   font-weight: bold;
 }
 
-/* 🟥 不可關閉的通知 (紅色高亮區) */
 .notice-item-red {
   background: #fff5f5;
   border-left: 5px solid var(--danger);
@@ -2152,7 +2151,6 @@ button.link:hover {
   margin-bottom: 6px;
 }
 
-/* 🟨 可關閉的通知 (黃色警示區) */
 .notice-item-yellow {
   background: #fff9f0;
   border-left: 5px solid var(--warning);
@@ -2185,7 +2183,12 @@ button.link:hover {
   z-index: 999;
 }
 
-/* 🔵 圓形右下角浮動按鈕 (放大尺寸至 68px) */
+.notice-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 999;
+}
+
 .notice-toggle-btn {
   width: 75px;
   height: 75px;
@@ -2219,7 +2222,6 @@ button.link:hover {
   background-position: center;
 }
 
-/* 智慧呼吸閃爍小紅點 */
 .notice-badge-dot {
   position: absolute;
   top: 1px;

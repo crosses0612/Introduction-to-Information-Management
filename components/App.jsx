@@ -560,39 +560,53 @@ export default function App() {
   const activeTabLabel = tabs.find(([key]) => key === activeTab)?.[1] ?? "";
 
   const nearestOrderNotice = useMemo(() => {
-  const targetOrders = isVendor 
-    ? historyOrders.filter(o => o.status === "confirmed")
-    : isCustomer 
-      ? orders.filter(o => o.status === "confirmed")
-      : [];
+    const targetOrders = isVendor 
+      ? historyOrders.filter(o => o.status === "confirmed")
+      : isCustomer 
+        ? orders.filter(o => o.status === "confirmed")
+        : [];
 
-  const now = new Date();
-  const unexpired = targetOrders
-    .map(o => {
-      const time = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
-      return { ...o, parsedTime: time ? new Date(time) : null };
-    })
-    .filter(o => o.parsedTime && o.parsedTime >= now)
-    .sort((a, b) => a.parsedTime - b.parsedTime);
+    const now = new Date();
+    const unexpired = targetOrders
+      .map(o => {
+        const time = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+        return { ...o, parsedTime: time ? new Date(time) : null };
+      })
+      .filter(o => o.parsedTime && o.parsedTime >= now)
+      .sort((a, b) => a.parsedTime - b.parsedTime);
 
-  if (unexpired.length === 0) return null;
-  
-  const next = unexpired[0];
-  const diffHours = (next.parsedTime - now) / (1000 * 60 * 60);
-  let timeLeftStr = diffHours <= 24 
-    ? `剩餘不到 ${Math.ceil(diffHours)} 小時！`
-    : `剩餘 ${Math.ceil(diffHours / 24)} 天`;
+    if (unexpired.length === 0) return null;
+    
+    const next = unexpired[0];
+    const diffHours = (next.parsedTime - now) / (1000 * 60 * 60);
+    let timeLeftStr = diffHours <= 24 
+      ? `剩餘不到 ${Math.ceil(diffHours)} 小時！`
+      : `剩餘 ${Math.ceil(diffHours / 24)} 天`;
 
-  return {
-    id: next.id,
-    customer: next.customer_name || next.customerName || next.user_name || "未知客戶",
-    phone: next.customer_phone || next.customerPhone || "無",
-    deliveryMethod: next.delivery_method ?? next.deliveryMethod ?? "來店自取",
-    address: next.delivery_address ?? next.deliveryAddress ?? "",
-    timeStr: formatDateTime(next.delivery_at ?? next.deliveryAt ?? next.delivery_date),
-    timeLeftStr
-  };
-}, [isVendor, isCustomer, historyOrders, orders]);
+    return {
+      id: next.id,
+      customer: next.customer_name || next.customerName || next.user_name || "未知客戶",
+      phone: next.customer_phone || next.customerPhone || "無",
+      deliveryMethod: next.delivery_method ?? next.deliveryMethod ?? "來店自取",
+      address: next.delivery_address ?? next.deliveryAddress ?? "",
+      timeStr: formatDateTime(next.delivery_at ?? next.deliveryAt ?? next.delivery_date),
+      timeLeftStr
+    };
+  }, [isVendor, isCustomer, historyOrders, orders]);
+
+  const expiredConfirmedCount = useMemo(() => {
+    if (!isVendor) return 0;
+    const now = new Date();
+    
+    return historyOrders.filter((o) => {
+      // 1. 必須是已確認狀態
+      if (o.status !== "confirmed") return false;
+      
+      // 2. 且交貨時間小於現在時間 (已過期)
+      const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+      return deliveryTime && new Date(deliveryTime) < now;
+    }).length;
+  }, [isVendor, historyOrders]);
 
   return (
     <div className="page dashboardShell">
@@ -638,7 +652,7 @@ export default function App() {
                 />
                 <input 
                   type="tel" 
-                  placeholder="電話（選填）" 
+                  placeholder="電話" 
                   value={authForm.phone} 
                   onChange={(e) => {
                     const filteredValue = e.target.value.replace(/[^0-9\-*]/g, "");
@@ -673,7 +687,6 @@ export default function App() {
           >
             {authMode === "login" ? "沒有帳號？前往註冊" : "已有帳號？前往登入"}
           </button>
-          <p className="hint">測試帳號：vendor@example.com / vendor123、customer@example.com / customer123</p>
         </section>
       ) : (
         <div className="dashboardLayout">
@@ -1399,6 +1412,7 @@ export default function App() {
                         </button>
                       </>
                     }
+
                   />
                 ))
               )}
@@ -1551,56 +1565,57 @@ export default function App() {
                   <span className="notice-title">系統即時通知中心</span>
                 </div>
 
-                {nearestOrderNotice ? (
-                  <div className="notice-item-red">
-                    <div className="notice-item-red-header">
-                      <span>最近的交貨任務：</span>
-                      <span>{nearestOrderNotice.timeLeftStr}</span>
-                    </div>
-                    <div style={{ fontSize: "0.9rem", lineHeight: "1.5" }}>
-                      <div><strong>訂單編號：</strong> #{nearestOrderNotice.id}</div>
-                      {isVendor && (
-                        <>
-                          <div><strong>客戶資訊：</strong> {nearestOrderNotice.customer} / Tel: {nearestOrderNotice.phone}</div>
-                          <div><strong>配送方式：</strong> {nearestOrderNotice.deliveryMethod === "delivery"
-                            ? `配送到府 (${nearestOrderNotice.address})`
-                            : "來店自取"}
-                          </div>
-                        </>
-                      )}
-                      <div><strong>交貨時間：</strong> <span>{nearestOrderNotice.timeStr}</span></div>
-                    </div>
+              {nearestOrderNotice ? (
+                <div className="notice-item-red">
+                  <div className="notice-item-red-header">
+                    <span>最近的交貨任務：</span>
+                    <span>{nearestOrderNotice.timeLeftStr}</span>
                   </div>
-                ) : (
-                  <div style={{ padding: "6px", color: "var(--subtext)", fontSize: "0.88rem", textAlign: "center" }}>
-                    目前暫無即將到期的交貨日訂單。
+                  <div style={{ fontSize: "0.9rem", lineHeight: "1.5" }}>
+                    <div><strong>訂單編號：</strong> #{nearestOrderNotice.id}</div>
+                    {isVendor && (
+                      <>
+                        <div><strong>客戶資訊：</strong> {nearestOrderNotice.customer} / Tel: {nearestOrderNotice.phone}</div>
+                        <div><strong>配送方式：</strong> {nearestOrderNotice.deliveryMethod === "delivery" ? `配送到府 (${nearestOrderNotice.address})` : "來店自取"}</div>
+                      </>
+                    )}
+                    <div><strong>交貨時間：</strong> <span>{nearestOrderNotice.timeStr}</span></div>
                   </div>
-                )}
+                </div>
+              ) : (
+                <div style={{ padding: "6px", color: "var(--subtext)", fontSize: "0.88rem", textAlign: "center" }}>
+                  目前暫無即將到期的交貨日訂單。
+                </div>
+              )}
 
-                {isVendor && lowStockMaterials.length > 0 && (
-                  <div className="notice-item-red">
-                    <div className="notice-item-red-header">
-                      <span>原料庫存不足補貨警戒：</span>
-                    </div>
-
-                    <ul
-                      style={{
-                        margin: 0,
-                        paddingLeft: "16px",
-                        fontSize: "0.85rem",
-                        color: "var(--text)"
-                      }}
-                    >
-                      {lowStockMaterials.map((m) => (
-                        <li key={m.id}>
-                          {m.name}：剩餘{" "}
-                          <strong style={{ color: "var(--danger)" }}>{m.stock}</strong>{" "}
-                          {m.unit}
-                        </li>
-                      ))}
-                    </ul>
+              {isVendor && expiredConfirmedCount > 0 && (
+                <div className="notice-item-red">
+                  <div className="notice-item-red-header">
+                    <span>逾期訂單警示：</span>
                   </div>
-                )}
+                  <div style={{ fontSize: "0.85rem", lineHeight: "1.6", color: "#262626" }}>
+                    目前有 <strong style={{ color: "var(--danger)"}}>{expiredConfirmedCount}</strong> 筆訂單<strong>已超過交貨時間</strong>！
+                    <div style={{ fontSize: "0.85rem"}}>
+                      請前往「交貨日提醒」確認過期訂單狀態，完成的訂單請補選『標記已完成』，剩餘訂單如未完成可按下『清除所有過期訂單』。
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {isVendor && lowStockMaterials.length > 0 && (
+                <div className="notice-item-red">
+                  <div className="notice-item-red-header">
+                    <span>原料庫存不足補貨警示：</span>
+                  </div>
+                  <ul style={{ margin: 0, paddingLeft: "16px", fontSize: "0.85rem", color: "var(--text)" }}>
+                    {lowStockMaterials.map((m) => (
+                      <li key={m.id}>
+                        {m.name}：剩餘 <strong style={{ color: "var(--danger)" }}>{m.stock}</strong> {m.unit}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
 
                 {isVendor && (
                   <>
@@ -1673,25 +1688,26 @@ export default function App() {
                       </div>
                     )}
                   </>
-)}
+                )}
               </div>
             )}
 
-            <button
+            <button 
               type="button"
               className="notice-toggle-btn"
-              onClick={() => setIsNoticeOpen((v) => !v)}
+              onClick={() => setIsNoticeOpen(!isNoticeOpen)}
               title="開啟通知中心"
             >
-              {((isVendor && (lowStockMaterials.length > 0 || (pendingAlert.warning && !hidePendingAlert) || nearestOrderNotice)) ||
+              {((isVendor && (lowStockMaterials.length > 0 || (pendingAlert.warning && !hidePendingAlert) || nearestOrderNotice || expiredConfirmedCount > 0)) || 
                 (isCustomer && (nearestOrderNotice || (pendingAlert.warning && !hidePendingAlert)))) && (
                 <span className="notice-badge-dot" />
               )}
             </button>
-          </div>
 
-      </>
-    )}
-    </div>
-  );
+          </div>
+          </>
+        )}
+      </div>
+    );
 }
+
