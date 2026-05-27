@@ -169,6 +169,7 @@ export default function App() {
   const isVendor = user?.role === "vendor";
   const isCustomer = user?.role === "customer";
   const [isNoticeOpen, setIsNoticeOpen] = useState(false);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [hidePendingAlert, setHidePendingAlert] = useState(false);
   const [hideCycleAlert, setHideCycleAlert] = useState(false);
   useEffect(() => {
@@ -525,6 +526,39 @@ export default function App() {
   const tabs = isCustomer ? custTabs : isVendor ? vendTabs : [];
   const setTabs = isCustomer ? setCustTabs : isVendor ? setVendTabs : () => {};
 
+  const getTabBadgeCount = (key) => {
+    if (isVendor) {
+      if (key === "orders") {
+        return pendingOrders.length;
+      }
+      if (key === "reminders") {
+        return historyOrders.filter((o) => {
+          if (o.status !== "confirmed") return false;
+          const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+          if (!deliveryTime) return false;
+          const diffDays = (new Date(deliveryTime) - new Date()) / (1000 * 60 * 60 * 24);
+          return diffDays >= 0 && diffDays <= vendorAlertDays;
+        }).length;
+      }
+    }
+
+    if (isCustomer) {
+      if (key === "reminders") {
+        return orders.filter((o) => {
+          if (o.status !== "confirmed") return false;
+          const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+          if (!deliveryTime) return false;
+          const diffDays = (new Date(deliveryTime) - new Date()) / (1000 * 60 * 60 * 24);
+          return diffDays >= 0 && diffDays <= customerAlertDays;
+        }).length;
+      }
+    }
+
+    return 0;
+  };
+
+  const activeTabLabel = tabs.find(([key]) => key === activeTab)?.[1] ?? "";
+
   const nearestOrderNotice = useMemo(() => {
   const targetOrders = isVendor 
     ? historyOrders.filter(o => o.status === "confirmed")
@@ -561,15 +595,35 @@ export default function App() {
 }, [isVendor, isCustomer, historyOrders, orders]);
 
   return (
-    <div className="page">
+    <div className="page dashboardShell">
       <FeedbackModal
         open={modalOpen}
         message={modalMessage}
         type={modalType}
         onClose={closeModal}
       />
-      <h1>訂單與原料管理系統</h1>
 
+      <div className="dashboardHeader">
+        <div>
+          <h1 className="dashboardTitle">智慧訂單系統</h1>
+          
+        </div>
+        {user && (
+          <div className="headerActions">
+            <button
+              type="button"
+              className="sidebarToggleBtn"
+              onClick={() => setIsSidebarOpen((prev) => !prev)}
+              aria-label="切換選單"
+            >
+              ☰
+            </button>
+            <button type="button" className="secondary" onClick={() => setIsNoticeOpen(!isNoticeOpen)} title="通知中心">
+              通知中心
+            </button>
+          </div>
+        )}
+      </div>
       {!user ? (
         <section className="card">
           <h2>{authMode === "login" ? "會員登入" : "會員註冊"}</h2>
@@ -622,101 +676,79 @@ export default function App() {
           <p className="hint">測試帳號：vendor@example.com / vendor123、customer@example.com / customer123</p>
         </section>
       ) : (
-        <>
-          <section className="card headerRow">
-            <p>
-              目前身份：<strong>{user.name}</strong> ({user.role})
-              {user.phone ? ` · 電話 ${user.phone}` : ""}
-            </p>
-            <button type="button" onClick={logout} disabled={isSubmitting}>
-              登出
-            </button>
-          </section>
+        <div className="dashboardLayout">
+          <div className={"sidebarBackdrop" + (isSidebarOpen ? " open" : "")} onClick={() => setIsSidebarOpen(false)} />
+          <aside className={"sidebar" + (isSidebarOpen ? " open" : "")}>
+            <div className="sidebarPanel">
+              <div className="sidebarUser">
+                {!isVendor && (
+                  <>
+                    <p className="sidebarUserName">{user.name}</p>
+                    <p className="sidebarUserMeta">
+                      {user.role} · {user.phone || "未設定電話"}
+                    </p>
+                  </>
+                )}
 
-          {(isCustomer || isVendor) && (
-            <section className="tabs">
-              {tabs.map(([key, label], idx) => {
-                let badgeCount = 0;
+                {isVendor && (
+                  <>
+                    <p className="sidebarUserName">{user.name}</p>
+                    <p className="sidebarUserMeta">{user.role}</p>
+                  </>
+                )}
+              </div>
 
-                if (isVendor) {
-                  if (key === "orders") {
-                    badgeCount = pendingOrders.length;
-                  } else if (key === "reminders") {
-                    badgeCount = historyOrders.filter(o => {
-                      if (o.status !== "confirmed") return false;
-                      const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
-                      if (!deliveryTime) return false;
-                      const diffMs = new Date(deliveryTime) - new Date();
-                      const diffDays = diffMs / (1000 * 60 * 60 * 24);
-                      return diffDays >= 0 && diffDays <= vendorAlertDays;
-                    }).length;
-                  }
-                }
+              <nav className="sidebarNav">
+                {tabs.map(([key, label], idx) => {
+                  const badgeCount = getTabBadgeCount(key);
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={activeTab === key ? "active" : ""}
+                      onClick={() => {
+                        setActiveTab(key);
+                        if (isSidebarOpen) setIsSidebarOpen(false);
+                      }}
+                      disabled={isSubmitting}
+                      draggable
+                      title="按住左右拖曳可調整選單順序"
+                      onDragStart={(e) => {
+                        setDraggedMainTabIdx(idx);
+                        e.dataTransfer.effectAllowed = "move";
+                      }}
+                      onDragOver={(e) => e.preventDefault()}
+                      onDragEnter={(e) => {
+                        if (draggedMainTabIdx === null || draggedMainTabIdx === idx) return;
+                        const updatedTabs = [...tabs];
+                        const draggedItem = updatedTabs[draggedMainTabIdx];
+                        updatedTabs.splice(draggedMainTabIdx, 1);
+                        updatedTabs.splice(idx, 0, draggedItem);
+                        setDraggedMainTabIdx(idx);
+                        setTabs(updatedTabs);
+                      }}
+                      onDragEnd={() => setDraggedMainTabIdx(null)}
+                    >
+                      <span>{label}</span>
+                      {badgeCount > 0 && <span className="sidebarBadge">{badgeCount}</span>}
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+          </aside>
 
-                if (isCustomer) {
-                  if (key === "reminders") {
-                    badgeCount = orders.filter(o => {
-                      if (o.status !== "confirmed") return false;
-                      const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
-                      if (!deliveryTime) return false;
-                      const diffMs = new Date(deliveryTime) - new Date();
-                      const diffDays = diffMs / (1000 * 60 * 60 * 24);
-                      return diffDays >= 0 && diffDays <= customerAlertDays;
-                    }).length;
-                  }
-                }
-                return (
-                  <button 
-                    key={key} 
-                    type="button" 
-                    draggable // 啟用 HTML5 原生拖曳
-                    className={activeTab === key ? "active" : ""} 
-                    onClick={() => setActiveTab(key)} 
-                    disabled={isSubmitting} 
-                    style={{ 
-                      cursor: "move", 
-                      opacity: draggedMainTabIdx === idx ? 0.4 : 1, // 拖曳時淡出
-                      transition: "opacity 0.2s ease"
-                    }}
-                    title="按住左右拖曳可調整選單順序"
-
-                    // --- 主導覽列 HTML5 原生拖曳事件 ---
-                    onDragStart={(e) => {
-                      setDraggedMainTabIdx(idx);
-                      e.dataTransfer.effectAllowed = "move";
-                    }}
-                    onDragOver={(e) => {
-                      e.preventDefault(); // 必須阻斷預設行為才能觸發重排序
-                    }}
-                    onDragEnter={(e) => {
-                      if (draggedMainTabIdx === null || draggedMainTabIdx === idx) return;
-                      
-                      // 實時調換主選單二維陣列位置
-                      const updatedTabs = [...tabs];
-                      const draggedItem = updatedTabs[draggedMainTabIdx];
-                      updatedTabs.splice(draggedMainTabIdx, 1); // 挖出拖曳項
-                      updatedTabs.splice(idx, 0, draggedItem); // 塞入新格
-                      
-                      setDraggedMainTabIdx(idx); // 同步更新當前正在移動的索引
-                      setTabs(updatedTabs); // 儲存排序結果
-                    }}
-                    onDragEnd={() => {
-                      setDraggedMainTabIdx(null); // 拖曳放開，清空暫存
-                    }}
-                  >
-                    {badgeCount > 0 ? (
-                      <span className="tab-badge-container">
-                        {label}
-                        <span className="tab-badge">{badgeCount}</span>
-                      </span>
-                    ) : (
-                      label
-                    )}
-                  </button>
-                );
-              })}
+          <main className="mainContent">
+            <section className="card headerRow">
+              <p>
+                目前身份：<strong>{user.name}</strong> ({user.role})
+                {user.phone ? ` · 電話 ${user.phone}` : ""}
+              </p>
+              <button type="button" onClick={logout} disabled={isSubmitting}>
+                登出
+              </button>
             </section>
-          )}
+
 
           {isCustomer && activeTab === "order" && (
             <OrderForm
@@ -797,148 +829,179 @@ export default function App() {
                 </button>
               </form>
 
-              {products.map((p) => {
-                const isEditing = editingProductId === p.id;
-                return (
-                  <div key={p.id} className="row" style={{ flexDirection: "column", alignItems: "stretch", gap: "15px" }}>
-                    {!isEditing ? (
-                      // 瀏覽模式
-                      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div className="productCardGrid">
+                {products.map((p) => {
+                  const isDiscontinued = p.name.includes("[已下架停售]");
+                  const cleanName = isDiscontinued
+                    ? p.name.replace(" [已下架停售]", "").replace("[已下架停售]", "")
+                    : p.name;
+
+                  return (
+                    <article key={p.id} className="productCard">
+                      <div className="productCardHeader">
                         <div>
-                          <strong>{p.name}</strong> - <span style={{ color: "var(--primary)" }}>NT$ {p.price}</span>
-                          <p style={{ margin: "5px 0", color: "var(--subtext)" }}>{p.description}</p>
-                          <small>
-                              當前配方： {p.recipe.map((r) => {
-                                // 透過配方的 materialId 去動態尋找原料列表裡最新、最即時的單位
-                                const currentMaterial = materials.find(m => Number(m.id) === Number(r.materialId));
-                                const latestUnit = currentMaterial ? currentMaterial.unit : (r.materialUnit || 'kg');
-                                return `${r.materialName} ${r.ratio} ${latestUnit}`;
-                              }).join(" / ") || "尚未設定"}
-                            </small>
+                          <p className="productCardTitle">{cleanName}</p>
+                          <p className="productCardMeta">NT$ {p.price}</p>
                         </div>
-                        <div style={{ display: "flex", gap: "10px" }}>
-                          <button type="button" onClick={() => {
+                        <span className={`statusBadge ${isDiscontinued ? "statusBadgeWarning" : "statusBadgeSuccess"}`}>
+                          {isDiscontinued ? "已停售" : "販售中"}
+                        </span>
+                      </div>
+                      {p.description && <p className="productCardDescription">{p.description}</p>}
+                      <p className="productCardRecipe">
+                        <strong>配方：</strong>
+                        {p.recipe?.length > 0
+                          ? p.recipe
+                              .map((r) => {
+                                const currentMaterial = materials.find((m) => Number(m.id) === Number(r.materialId));
+                                const latestUnit = currentMaterial ? currentMaterial.unit : (r.materialUnit || "kg");
+                                return `${r.materialName} ${r.ratio} ${latestUnit}`;
+                              })
+                              .join(" / ")
+                          : "尚未設定"}
+                      </p>
+                      <div className="productCardActions">
+                        <button
+                          type="button"
+                          className="secondary"
+                          onClick={() => {
                             setEditingProductId(p.id);
                             setProductEditForm({ name: p.name, description: p.description, price: p.price, recipe: p.recipe || [] });
-                          }}>編輯商品與配方</button>
-                          {(() => {
-                            const isDiscontinued = p.name.includes("[已下架停售]");
-                            return (
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  let newName = p.name;
-                                  if (isDiscontinued) {
-                                    newName = p.name.replace(" [已下架停售]", "").replace("[已下架停售]", "");
-                                    if (!window.confirm(`確定要將「${newName}」重新上架恢復販售嗎？`)) return;
-                                  } else {
-                                    newName = `${p.name} [已下架停售]`;
-                                    if (!window.confirm(`確定要將「${p.name}」停售下架嗎？\n停售後客戶將無法再下單此商品。`)) return;
-                                  }
+                          }}
+                        >
+                          編輯商品與配方
+                        </button>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            let newName = p.name;
+                            if (isDiscontinued) {
+                              newName = p.name.replace(" [已下架停售]", "").replace("[已下架停售]", "");
+                              if (!window.confirm(`確定要將「${newName}」重新上架恢復販售嗎？`)) return;
+                            } else {
+                              newName = `${p.name} [已下架停售]`;
+                              if (!window.confirm(`確定要將「${p.name}」停售下架嗎？\n停售後客戶將無法再下單此商品。`)) return;
+                            }
 
-                                  // 呼叫現有的 updateProduct 接口更新名稱
-                                  await runActionNoScroll(async () => {
-                                    await api.updateProduct(p.id, {
-                                      name: newName,
-                                      description: p.description,
-                                      price: Number(p.price)
-                                    });
-                                    await refreshCoreData();
-                                  }, { successMessage: isDiscontinued ? "商品已恢復販售！" : "商品已成功停售！" });
-                                }}
-                              >
-                                {isDiscontinued ? "恢復販售" : "停售商品"}
-                              </button>
-                            );
-                          })()}
-                          <button type="button" className="btn-danger" onClick={() => removeProduct(p.id)}>刪除</button>
-                        </div>
+                            await runActionNoScroll(async () => {
+                              await api.updateProduct(p.id, {
+                                name: newName,
+                                description: p.description,
+                                price: Number(p.price),
+                              });
+                              await refreshCoreData();
+                            }, { successMessage: isDiscontinued ? "商品已恢復販售！" : "商品已成功停售！" });
+                          }}
+                          className={isDiscontinued ? "secondary" : ""}
+                        >
+                          {isDiscontinued ? "恢復販售" : "停售商品"}
+                        </button>
+                        <button type="button" className="btn-danger" onClick={() => removeProduct(p.id)}>
+                          刪除
+                        </button>
                       </div>
-                    ) : (
-                      // 編輯模式
-                      <form onSubmit={(e) => handleUpdateProductAndRecipe(p.id, e)} className="grid" style={{ background: "#f9f9f9", padding: "15px", borderRadius: "8px" }}>
-                        <h3>修改商品資料</h3>
-                        <label>
-                          商品名稱
-                          <input value={productEditForm.name} onChange={(e) => setProductEditForm({...productEditForm, name: e.target.value})} placeholder="商品名稱" required />
-                        </label>
-                        <label>
-                          商品描述
-                          <input value={productEditForm.description} onChange={(e) => setProductEditForm({...productEditForm, description: e.target.value})} placeholder="商品描述" />
-                        </label>
-                        <label>
-                          價格
-                          <input type="number" value={productEditForm.price} onChange={(e) => setProductEditForm({...productEditForm, price: e.target.value})} placeholder="價格" required />
-                        </label>                        
-                        <h4>配方調整</h4>
+                    </article>
+                  );
+                })}
+              </div>
+            </section>
+          )}
+
+          {editingProductId && (
+              <div className="drawerOverlay" onClick={() => setEditingProductId(null)}>
+                <aside className="drawerPanel" onClick={(e) => e.stopPropagation()}>
+                  <div className="drawerHeader">
+                    <div>
+                      <p className="drawerTitle">編輯商品與配方</p>
+                      <p className="drawerHint">調整商品資訊與原料用量，保存後即時生效。</p>
+                    </div>
+                    <button type="button" className="iconButton" onClick={() => setEditingProductId(null)}>
+                      ✕
+                    </button>
+                  </div>
+                  <form onSubmit={(e) => handleUpdateProductAndRecipe(editingProductId, e)} className="drawerForm">
+                    <div className="grid drawerGrid">
+                      <label>
+                        商品名稱
+                        <input
+                          value={productEditForm.name}
+                          onChange={(e) => setProductEditForm({ ...productEditForm, name: e.target.value })}
+                          placeholder="商品名稱"
+                          required
+                        />
+                      </label>
+                      <label>
+                        商品描述
+                        <input
+                          value={productEditForm.description}
+                          onChange={(e) => setProductEditForm({ ...productEditForm, description: e.target.value })}
+                          placeholder="商品描述"
+                        />
+                      </label>
+                      <label>
+                        價格
+                        <input
+                          type="number"
+                          value={productEditForm.price}
+                          onChange={(e) => setProductEditForm({ ...productEditForm, price: e.target.value })}
+                          placeholder="價格"
+                          required
+                        />
+                      </label>
+                    </div>
+
+                    <div className="drawerSection">
+                      <h3>配方調整</h3>
+                      <div className="recipeGrid">
                         {materials.map((m) => {
-                          // 1. 精準找出該原料是否已存在於當前編輯商品的配方中
-                          const currentRecipeItem = productEditForm.recipe.find(r => Number(r.materialId) === Number(m.id));
-                          
-                          // 2. 決定輸入框要顯示的值：如果配方裡有，就拿它的用量（ratio 或 usageKg），否則就留空
-                          // 這樣能完美解決你「數字輸入不流暢、卡 0」以及「顯示目前數量」的痛點
-                          const inputValue = currentRecipeItem 
-                            ? (currentRecipeItem.ratio ?? currentRecipeItem.usageKg ?? "") 
-                            : "";
+                          const currentRecipeItem = productEditForm.recipe.find((r) => Number(r.materialId) === Number(m.id));
+                          const inputValue = currentRecipeItem ? (currentRecipeItem.ratio ?? currentRecipeItem.usageKg ?? "") : "";
 
                           return (
-                            <div key={m.id} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0" }}>
-                              <span>
-                                {m.name} ({m.unit}) 
-                                {/* 如果目前配方有包含此原料，在旁邊貼心顯示提示小字 */}
-                                {currentRecipeItem && <small style={{ color: "var(--primary)", marginLeft: "8px" }}>(已在配方中)</small>}
-                              </span>
-                              
-                              <input 
-                                type="number" 
-                                style={{ width: "120px" }} 
-                                placeholder="不用請留空"
-                                value={inputValue} 
+                            <label key={m.id} className="recipeRow">
+                              <span>{m.name} ({m.unit})</span>
+                              <input
+                                type="number"
+                                value={inputValue}
+                                placeholder="用量"
                                 onChange={(e) => {
                                   const val = e.target.value;
-                                  
-                                  // 過濾掉舊的該項原料，避免重複資料留在陣列裡導致 duplicate key 錯誤
-                                  const otherRecipeItems = productEditForm.recipe.filter(r => Number(r.materialId) !== Number(m.id));
-                                  
+                                  const otherRecipeItems = productEditForm.recipe.filter((r) => Number(r.materialId) !== Number(m.id));
                                   let nextRecipe = [...otherRecipeItems];
-
-                                  // 如果使用者有輸入有效數字（且大於 0）
                                   if (val !== "" && Number(val) > 0) {
-                                    // 統一格式：確保傳給後端的欄位名稱同時具備 materialId、ratio 與後端可能需要的 usageKg/materialName
                                     nextRecipe.push({
                                       materialId: Number(m.id),
                                       materialName: m.name,
                                       ratio: Number(val),
-                                      usageKg: Number(val) // 順便附帶 usageKg 欄位，徹底對齊你後端的資料模型
+                                      usageKg: Number(val),
                                     });
                                   }
-
-                                  // 一口氣更新 State
-                                  setProductEditForm({ 
-                                    ...productEditForm, 
-                                    recipe: nextRecipe 
-                                  });
+                                  setProductEditForm({ ...productEditForm, recipe: nextRecipe });
                                 }}
                               />
-                            </div>
+                            </label>
                           );
                         })}
-                        <div style={{ display: "flex", gap: "10px", marginTop: "10px" }}>
-                          <button type="submit">儲存所有變更</button>
-                          <button type="button" style={{ background: "#ccc" }} onClick={() => setEditingProductId(null)}>取消</button>
-                        </div>
-                      </form>
-                    )}
-                  </div>
-                );
-              })}
-            </section>
-          )}
+                      </div>
+                    </div>
+
+                    <div className="drawerActions">
+                      <button type="submit" className="primary">
+                        儲存變更
+                      </button>
+                      <button type="button" className="secondary" onClick={() => setEditingProductId(null)}>
+                        取消
+                      </button>
+                    </div>
+                  </form>
+                </aside>
+              </div>
+            )}
 
           {isVendor && activeTab === "materials" && (
             <section className="card">
               <h2>原料管理</h2>
-              <div className="tabs subTabs" style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border)", paddingBottom: "10px", marginBottom: "20px" }}>
+              <div className="tabs subTabs" style={{ display: "flex", gap: "8px", borderBottom: "1px solid var(--border)", paddingBottom: "10px", marginBottom: "20px"}}>
                 {materialSubTabs.map((subTab, idx) => (
                   <button
                     key={subTab.key}
@@ -950,7 +1013,8 @@ export default function App() {
                       opacity: draggedTabIdx === idx ? 0.4 : 1,
                       transition: "opacity 0.2s ease",
                       padding: "8px 16px",
-                      fontSize: "0.9rem"
+                      fontSize: "0.9rem",
+                      borderRadius: "12px"
                     }}
                     onClick={() => setActiveMaterialSubTab(subTab.key)}
                     onDragStart={(e) => {
@@ -1460,108 +1524,174 @@ export default function App() {
               />
             </section>
           )}
-        </>
-      )}
-      {user && (
-        <div className="notice-wrapper">
-          {isNoticeOpen && (
-            <div className="notice-panel">
-              <div className="notice-header">
-                <span className="notice-title">系統即時通知中心</span>
-                <button type="button" className="notice-close-x" onClick={() => setIsNoticeOpen(false)}>✖</button>
-              </div>
-
-              {nearestOrderNotice ? (
-                <div className="notice-item-red">
-                  <div className="notice-item-red-header">
-                    <span>最近的交貨任務：</span>
-                    <span>{nearestOrderNotice.timeLeftStr}</span>
-                  </div>
-                  <div style={{ fontSize: "0.9rem", lineHeight: "1.5" }}>
-                    <div><strong>訂單編號：</strong> #{nearestOrderNotice.id}</div>
-                    {isVendor && (
-                      <>
-                        <div><strong>客戶資訊：</strong> {nearestOrderNotice.customer} / Tel: {nearestOrderNotice.phone}</div>
-                        <div><strong>配送方式：</strong> {nearestOrderNotice.deliveryMethod === "delivery" ? `配送到府 (${nearestOrderNotice.address})` : "來店自取"}</div>
-                      </>
-                    )}
-                    <div><strong>交貨時間：</strong> <span>{nearestOrderNotice.timeStr}</span></div>
-                  </div>
-                </div>
-              ) : (
-                <div style={{ padding: "6px", color: "var(--subtext)", fontSize: "0.88rem", textAlign: "center" }}>
-                  目前暫無即將到期的交貨日訂單。
-                </div>
-              )}
-
-              {isVendor && lowStockMaterials.length > 0 && (
-                <div className="notice-item-red">
-                  <div className="notice-item-red-header">
-                    <span>原料庫存不足補貨警戒：</span>
-                  </div>
-                  <ul style={{ margin: 0, paddingLeft: "16px", fontSize: "0.85rem", color: "var(--text)" }}>
-                    {lowStockMaterials.map((m) => (
-                      <li key={m.id}>
-                        {m.name}：剩餘 <strong style={{ color: "var(--danger)" }}>{m.stock}</strong> {m.unit}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-
-              {isVendor && (
-                <>
-                  {pendingAlert.warning && !hidePendingAlert && (
-                    <div className="notice-item-yellow">
-                      <span className="notice-item-yellow-text"><strong>待確認訂單偏高：</strong>目前 <strong>{pendingAlert.pendingCount}</strong> 筆待確認訂單，請加速審核以免客戶久候。</span>
-                      <button type="button" className="notice-item-dismiss" onClick={() => setHidePendingAlert(true)}>✖</button>
-                    </div>
-                  )}
-
-                  {stats.customerFrequency && stats.customerFrequency.filter(c => c.avg_cycle_days !== null && c.avg_cycle_days <= 3).length > 0 && !hideCycleAlert && (
-                    <div className="notice-item-yellow">
-                      <span className="notice-item-yellow-text">
-                        <strong>下單週期預警：</strong>
-                        <strong>
-                        {stats.customerFrequency
-                          .filter(c => c.avg_cycle_days !== null && c.avg_cycle_days <= 3)
-                          .map(c => c.name).join("、")}
-                        </strong> 預計近期再度訂購，請調配原料產能。
-                      </span>
-                      <button type="button" className="notice-item-dismiss" onClick={() => setHideCycleAlert(true)}>✖</button>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {isCustomer && (
-                <>
-                  {pendingAlert.warning && !hideCycleAlert && (
-                    <div className="notice-item-yellow">
-                      <span className="notice-item-yellow-text"><strong>待確認訂單偏高：</strong>目前店家訂單排單較滿，新成立訂單等候確認之時間可能稍長，請多包涵。</span>
-                      <button type="button" className="notice-item-dismiss" onClick={() => setHideCycleAlert(true)}>✖</button>
-                    </div>
-                  )}
-                </>
-              )}
-
-            </div>
-          )}
-
-          <button 
-            type="button"
-            className="notice-toggle-btn"
-            onClick={() => setIsNoticeOpen(!isNoticeOpen)}
-            title="開啟通知中心"
-          >
-            {((isVendor && (lowStockMaterials.length > 0 || (pendingAlert.warning && !hidePendingAlert) || nearestOrderNotice)) || 
-              (isCustomer && (nearestOrderNotice || (pendingAlert.warning && !hidePendingAlert)))) && (
-              <span className="notice-badge-dot" />
-            )}
-          </button>
-
+          </main>
         </div>
       )}
+      {user && (
+        <>
+          <div className="mobileActionBar">
+            <div>
+              <p className="mobileActionLabel">{activeTabLabel}</p>
+            </div>
+          </div>
+          <div className="notice-wrapper">
+            {isNoticeOpen && (
+              <div
+                className="notice-overlay"
+                onClick={() => setIsNoticeOpen(false)}
+              />
+            )}
+
+            {isNoticeOpen && (
+              <div
+                className="notice-panel"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="notice-header">
+                  <span className="notice-title">系統即時通知中心</span>
+                </div>
+
+                {nearestOrderNotice ? (
+                  <div className="notice-item-red">
+                    <div className="notice-item-red-header">
+                      <span>最近的交貨任務：</span>
+                      <span>{nearestOrderNotice.timeLeftStr}</span>
+                    </div>
+                    <div style={{ fontSize: "0.9rem", lineHeight: "1.5" }}>
+                      <div><strong>訂單編號：</strong> #{nearestOrderNotice.id}</div>
+                      {isVendor && (
+                        <>
+                          <div><strong>客戶資訊：</strong> {nearestOrderNotice.customer} / Tel: {nearestOrderNotice.phone}</div>
+                          <div><strong>配送方式：</strong> {nearestOrderNotice.deliveryMethod === "delivery"
+                            ? `配送到府 (${nearestOrderNotice.address})`
+                            : "來店自取"}
+                          </div>
+                        </>
+                      )}
+                      <div><strong>交貨時間：</strong> <span>{nearestOrderNotice.timeStr}</span></div>
+                    </div>
+                  </div>
+                ) : (
+                  <div style={{ padding: "6px", color: "var(--subtext)", fontSize: "0.88rem", textAlign: "center" }}>
+                    目前暫無即將到期的交貨日訂單。
+                  </div>
+                )}
+
+                {isVendor && lowStockMaterials.length > 0 && (
+                  <div className="notice-item-red">
+                    <div className="notice-item-red-header">
+                      <span>原料庫存不足補貨警戒：</span>
+                    </div>
+
+                    <ul
+                      style={{
+                        margin: 0,
+                        paddingLeft: "16px",
+                        fontSize: "0.85rem",
+                        color: "var(--text)"
+                      }}
+                    >
+                      {lowStockMaterials.map((m) => (
+                        <li key={m.id}>
+                          {m.name}：剩餘{" "}
+                          <strong style={{ color: "var(--danger)" }}>{m.stock}</strong>{" "}
+                          {m.unit}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+
+                {isVendor && (
+                  <>
+                    {pendingAlert.warning && !hidePendingAlert && (
+                      <div className="notice-item-yellow">
+                        <span className="notice-item-yellow-text">
+                          <strong>待確認訂單偏高：</strong>
+                          目前 <strong>{pendingAlert.pendingCount}</strong> 筆待確認訂單，請加速審核以免客戶久候。
+                        </span>
+
+                        <button
+                          type="button"
+                          className="notice-item-dismiss"
+                          onClick={() => setHidePendingAlert(true)}
+                        >
+                          ✖
+                        </button>
+                      </div>
+                    )}
+
+                    {stats.customerFrequency &&
+                      stats.customerFrequency.filter(
+                        (c) => c.avg_cycle_days !== null && c.avg_cycle_days <= 3
+                      ).length > 0 &&
+                      !hideCycleAlert && (
+                        <div className="notice-item-yellow">
+                          <span className="notice-item-yellow-text">
+                            <strong>下單週期預警：</strong>
+                            <strong>
+                              {stats.customerFrequency
+                                .filter(
+                                  (c) =>
+                                    c.avg_cycle_days !== null &&
+                                    c.avg_cycle_days <= 3
+                                )
+                                .map((c) => c.name)
+                                .join("、")}
+                            </strong>
+                            預計近期再度訂購，請調配原料產能。
+                          </span>
+
+                          <button
+                            type="button"
+                            className="notice-item-dismiss"
+                            onClick={() => setHideCycleAlert(true)}
+                          >
+                            ✖
+                          </button>
+                        </div>
+                      )}
+                  </>
+                )}
+
+                {isCustomer && (
+                  <>
+                    {pendingAlert.warning && !hideCycleAlert && (
+                      <div className="notice-item-yellow">
+                        <span className="notice-item-yellow-text">
+                          <strong>待確認訂單偏高：</strong>
+                          目前店家訂單排單較滿，新成立訂單等候確認之時間可能稍長，請多包涵。
+                        </span>
+
+                        <button
+                          type="button"
+                          className="notice-item-dismiss"
+                          onClick={() => setHideCycleAlert(true)}
+                        >
+                          ✖
+                        </button>
+                      </div>
+                    )}
+                  </>
+)}
+              </div>
+            )}
+
+            <button
+              type="button"
+              className="notice-toggle-btn"
+              onClick={() => setIsNoticeOpen((v) => !v)}
+              title="開啟通知中心"
+            >
+              {((isVendor && (lowStockMaterials.length > 0 || (pendingAlert.warning && !hidePendingAlert) || nearestOrderNotice)) ||
+                (isCustomer && (nearestOrderNotice || (pendingAlert.warning && !hidePendingAlert)))) && (
+                <span className="notice-badge-dot" />
+              )}
+            </button>
+          </div>
+
+      </>
+    )}
     </div>
   );
 }
