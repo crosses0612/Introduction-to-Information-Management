@@ -128,12 +128,12 @@ export default function OrderCard({ order, actions }) {
 
               return (
                 <li key={idx} style={{ padding: "3px 0" }}>
-                  <div style={{ display: "inline-flex", justifyContent: "space-between", width: "100%", maxWidth: "225px", alignItems: "center" }}>
+                  <div style={{ display: "inline-flex", justifyContent: "space-between", width: "100%", maxWidth: "250px", alignItems: "center" }}>
                     <span>{item.productName ?? item.product_name} x {qty}</span>
                     
                     {isEditingPrice ? (
                       <div style={{ display: "inline-flex", alignItems: "left", gap: "1px" }}>
-                        <span style={{ fontSize: "0.8rem", color: "var(--subtext)" }}>單價: NT$ </span>
+                        <span style={{ fontSize: "0.8rem", color: "var(--subtext)" }}>NT$ </span>
                         <input 
                           type="number"
                           min="0"

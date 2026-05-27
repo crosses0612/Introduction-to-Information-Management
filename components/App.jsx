@@ -179,41 +179,81 @@ export default function App() {
   }, []);
 
   async function refreshCoreData() {
-    const data = await api.getProducts();
-    setProducts(data);
-    if (!user) return;
-
-    const alertData = await api.getPendingAlert();
-    setPendingAlert(alertData);
+    if (!user) {
+      const data = await api.getProducts();
+      setProducts(data);
+      return;
+    }
 
     if (isCustomer) {
-      const myOrders = await api.getMyOrders();
+      const [products, alertData, myOrders] = await Promise.all([
+        api.getProducts(),
+        api.getPendingAlert(),
+        api.getMyOrders()
+      ]);
+      setProducts(products);
+      setPendingAlert(alertData);
       setOrders(myOrders);
     }
 
     if (isVendor) {
-      const [materialData, pending, history, statsData] = await Promise.all([
+      const [products, alertData, materialData, pending] = await Promise.all([
+        api.getProducts(),
+        api.getPendingAlert(),
         api.getMaterials(),
-        api.getVendorOrders("pending"),
+        api.getVendorOrders("pending")
+      ]);
+      
+      setProducts(products);
+      setPendingAlert(alertData);
+      setMaterials(materialData);
+      setPendingOrders(pending);
+
+    }
+  }
+
+  async function loadInitialVendorData() {
+    try {
+      const [history, statsData] = await Promise.all([
         api.getVendorOrders("history"),
         api.getStats()
       ]);
-      setMaterials(materialData);
-      setPendingOrders(pending);
       setHistoryOrders(history);
       setStats(statsData);
+    } catch (err) {
+      notifyError?.(err.message) || console.error(err);
     }
   }
 
   useEffect(() => {
     if (!user) return;
     setActiveTab(user.role === "customer" ? "order" : "products");
+    if (user.role === "vendor") {
+      loadInitialVendorData();
+    }
   }, [user?.id, user?.role]);
 
   useEffect(() => {
     refreshCoreData().catch((err) => notifyErrorNoScroll(err.message));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+
+    if (isVendor) {
+      if (activeTab === "orderHistory" || activeTab === "reminders") {
+        api.getVendorOrders("history").then(setHistoryOrders).catch((err) => notifyErrorNoScroll?.(err.message));
+      }
+      if (activeTab === "stats") {
+        api.getStats().then(setStats).catch((err) => notifyErrorNoScroll?.(err.message));
+      }
+    }
+
+    if (isCustomer && (activeTab === "orders" || activeTab === "reminders")) {
+      api.getMyOrders().then(setOrders).catch((err) => notifyErrorNoScroll?.(err.message));
+    }
+  }, [user?.id, activeTab]);
 
   // 當有 user（包含從 localStorage 讀取）時，嘗試從後端取得完整 profile，避免 local user 缺少 tabs 欄位
   useEffect(() => {
@@ -337,6 +377,14 @@ export default function App() {
     await runActionNoScroll(async () => {
       await api.completeOrder(id);
       await refreshCoreData();
+      if (isVendor) {
+        const [history, statsData] = await Promise.all([
+          api.getVendorOrders("history"),
+          api.getStats()
+        ]);
+        setHistoryOrders(history);
+        setStats(statsData);
+      }
     }, { successMessage: "訂單已標記為已完成" });
   }
 
@@ -406,6 +454,10 @@ export default function App() {
       async () => {
         const result = await api.confirmOrder(id);
         await refreshCoreData();
+        if (isVendor) {
+        const history = await api.getVendorOrders("history");
+        setHistoryOrders(history);
+      }
         return result;
       },
       {
@@ -424,6 +476,10 @@ export default function App() {
     await runActionNoScroll(async () => {
       await api.cancelOrder(id);
       await refreshCoreData();
+      if (isVendor) {
+        const history = await api.getVendorOrders("history");
+        setHistoryOrders(history);
+      }
     }, { successMessage: "訂單已成功取消" });
   }
 
@@ -521,7 +577,7 @@ export default function App() {
 
     await runActionNoScroll(async () => {
       setClearedExpiredIds(prev => [...new Set([...prev, ...expiredIds])]);
-      await Promise.all(expiredIds.map(id => api.completeOrder(id))); 
+      await Promise.all(expiredIds.map(id => api.cancelOrder(id))); 
       await refreshCoreData();
     }, { successMessage: "所有過期訂單已成功清除！" });
   }
@@ -1466,14 +1522,18 @@ export default function App() {
                 const filteredOrders = historyOrders.filter((o) => {
                   const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
                   const isOverdue = deliveryTime && new Date(deliveryTime) < now;
-                  const isSweptByClearButton = clearedExpiredIds.includes(o.id);
 
                   if (vendorHistoryTab === "expired") {
-                    return (o.status === "confirmed" && isOverdue) || (o.status === "completed" && isSweptByClearButton);
+                    // 待交貨但時間過了，或是因為過期而被商家按一鍵清理（cancelled 且過期）
+                    return (o.status === "confirmed" && isOverdue) || (o.status === "cancelled" && isOverdue);
                   } else if (vendorHistoryTab === "completed") {
-                    return o.status === "completed" && !isSweptByClearButton;
+                    // 只要是 completed，不論有沒有遲到，通通屬於光榮的「已完成」！
+                    return o.status === "completed";
                   } else if (vendorHistoryTab === "confirmed") {
                     return o.status === "confirmed" && !isOverdue;
+                  } else if (vendorHistoryTab === "cancelled") {
+                    // 真正的取消：未過期前就被取消的單
+                    return o.status === "cancelled" && !isOverdue;
                   } else {
                     return o.status === vendorHistoryTab;
                   }

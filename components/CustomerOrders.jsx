@@ -9,14 +9,18 @@ export default function CustomerOrders({ orders, isSubmitting, clearedExpiredIds
   const filteredOrders = orders.filter((o) => {
     const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
     const isOverdue = deliveryTime && new Date(deliveryTime) < now;
-    const isSweptByClearButton = clearedExpiredIds.includes(o.id);
 
     if (activeSubTab === "expired") {
-      return (o.status === "confirmed" && isOverdue) || (o.status === "completed" && isSweptByClearButton);
+      // 1. 商家還沒清（confirmed 且過期） 2. 商家按了一鍵清理（cancelled 且過期）
+      return (o.status === "confirmed" && isOverdue) || (o.status === "cancelled" && isOverdue);
     } else if (activeSubTab === "completed") {
-      return o.status === "completed" && !isSweptByClearButton;
+      // 2. 只要商家有點擊「標記已完成」，不管有沒有遲到交貨，客人都會歸類在「已完成」
+      return o.status === "completed";
     } else if (activeSubTab === "confirmed") {
       return o.status === "confirmed" && !isOverdue;
+    } else if (activeSubTab === "cancelled") {
+      // 3. 真正的取消：時間還沒過，就被客人或商家點按取消的
+      return o.status === "cancelled" && !isOverdue;
     } else {
       return o.status === activeSubTab;
     }

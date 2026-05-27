@@ -20,6 +20,7 @@ export async function POST(request) {
     validateDeliveryMethod(deliveryMethod, deliveryAddress);
 
     const orderId = await withTransaction(async (client) => {
+      // 1. 先寫入訂單主檔
       const orderResult = await client.query(
         `INSERT INTO orders (user_id, delivery_date, delivery_at, delivery_method, delivery_address, note, status)
          VALUES ($1, $2::date, $3, $4, $5, $6, 'pending') RETURNING id`,
@@ -34,20 +35,40 @@ export async function POST(request) {
       );
       const id = orderResult.rows[0].id;
 
-      for (const item of items) {
-        const productResult = await client.query(
-          "SELECT id, price FROM products WHERE id = $1 AND is_active = TRUE",
-          [item.productId]
-        );
-        const product = productResult.rows[0];
+      const productIds = items.map(item => item.productId);
+      const productResult = await client.query(
+        "SELECT id, price FROM products WHERE id = ANY($1) AND is_active = TRUE",
+        [productIds]
+      );
+
+      const productMap = {};
+      productResult.rows.forEach(p => {
+        productMap[p.id] = p;
+      });
+
+      const insertValues = [];
+      const valuePlaceholders = [];
+
+      items.forEach((item, index) => {
+        const product = productMap[item.productId];
         if (!product) throw new Error("Product not found");
+
         const qty = assertSafeInteger(item.quantity, "商品數量");
         if (qty <= 0) throw new Error("商品數量必須大於 0");
-        await client.query(
-          "INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES ($1, $2, $3, $4)",
-          [id, product.id, qty, product.price]
-        );
-      }
+
+        const offset = index * 4;
+        valuePlaceholders.push(`($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4})`);
+        
+        insertValues.push(id, product.id, qty, product.price);
+      });
+
+      const bulkInsertSql = `
+        INSERT INTO order_items (order_id, product_id, quantity, unit_price) 
+        VALUES ${valuePlaceholders.join(", ")}
+      `;
+      
+      await client.query(bulkInsertSql, insertValues);
+
       return id;
     });
 

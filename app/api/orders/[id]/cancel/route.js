@@ -12,10 +12,23 @@ export async function PUT(request, context) {
       const current = await client.query("SELECT * FROM orders WHERE id = $1", [id]);
       if (!current.rows.length) throw new Error("Order not found");
       const o = current.rows[0];
-      if (o.status !== "pending") throw new Error("僅能取消待處理訂單");
+
+      const deliveryTime = o.delivery_at ?? o.delivery_date;
+      const isOverdue = deliveryTime && new Date(deliveryTime) < new Date();
+
+      if (o.status !== "pending") {
+        const isVendorClearingExpired = o.status === "confirmed" && user.role === "vendor" && isOverdue;
+        
+        if (!isVendorClearingExpired) {
+          throw new Error("僅能取消待處理訂單");
+        }
+      }
+
+      // 權限檢查：如果是客戶，只能操作跟自己 user_id 綁定的訂單
       if (user.role === "customer" && String(o.user_id) !== String(user.sub)) {
         throw new Error("Forbidden");
       }
+
       const result = await client.query(
         "UPDATE orders SET status = 'cancelled' WHERE id = $1 RETURNING *",
         [id]
