@@ -168,7 +168,7 @@ export default function App() {
 
   const isVendor = user?.role === "vendor";
   const isCustomer = user?.role === "customer";
-  const [isNoticeOpen, setIsNoticeOpen] = useState(false);
+  const [isNoticeOpen, setIsNoticeOpen] = useState(true);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [hidePendingAlert, setHidePendingAlert] = useState(false);
   const [hideCycleAlert, setHideCycleAlert] = useState(false);
@@ -227,6 +227,7 @@ export default function App() {
         const merged = { ...user, ...profile };
         localStorage.setItem("user", JSON.stringify(merged));
         setUser(merged);
+        setIsNoticeOpen(true);
       })
       .catch(() => {
         /* 忽略錯誤，保持現有 user */
@@ -295,8 +296,10 @@ export default function App() {
         const merged = { ...data.user, ...full };
         localStorage.setItem("user", JSON.stringify(merged));
         setUser(merged);
+        setIsNoticeOpen(true);
       } catch (err) {
         setUser(data.user);
+        setIsNoticeOpen(true);
       }
       setAuthForm({ name: "", username: "", password: "", phone: "" });
     }, { successMessage: authMode === "register" ? "註冊成功" : "登入成功" });
