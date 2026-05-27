@@ -617,7 +617,7 @@ export default function App() {
         onClose={closeModal}
       />
 
-      <div className="dashboardHeader">
+      <div className={`dashboardHeader ${user ? "withSidebar" : ""}`}>
         <div>
           <h1 className="dashboardTitle">智慧訂單系統</h1>
           
@@ -1130,7 +1130,7 @@ export default function App() {
               {activeMaterialSubTab === "list" && (
               <div className="subsection">
                 <h3>原料列表</h3>
-                  <div className="materialEditRow" style={{ marginBottom: "5px", boxShadow: "none", background: "transparent" }}>
+                  <div className="materialEditRow materialHeaderRow">
                     <input 
                       value="原料名稱" 
                       disabled 
@@ -1219,7 +1219,7 @@ export default function App() {
                             <option value="custom">➕ 新增...</option>
                           </select>
                         ) : (
-                          <div style={{ display: "flex", gap: "4px", alignItems: "center" }}>
+                          <div className="customUnitField">
                             <input style={{ width: "70px" }} placeholder="新單位" value={editCustomUnitInput} onChange={(e) => { setEditCustomUnitInput(e.target.value); setMaterialEdits({ ...materialEdits, [m.id]: { ...edit, unit: e.target.value } }); }} disabled={isSubmitting} />
                             <button type="button" style={{ padding: "2px 6px", fontSize: "12px", background: "#efefef", color: "#333" }} onClick={() => { setEditingCustomUnitId(null); setEditCustomUnitInput(""); setMaterialEdits({ ...materialEdits, [m.id]: { ...edit, unit: m.unit } }); }}>✖</button>
                           </div>

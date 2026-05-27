@@ -139,10 +139,12 @@ hr {
   gap: 24px;
   box-shadow: var(--shadow-xs);
 
-  /* 新增 */
+  box-sizing: border-box;
+}
+
+.dashboardHeader.withSidebar {
   margin-left: var(--sidebar-width);
   width: calc(100% - var(--sidebar-width));
-  box-sizing: border-box;
 }
 
 .headerActions {
@@ -873,10 +875,17 @@ button.iconButton:hover {
 
 .materialEditRow {
   display: grid;
-  grid-template-columns: 1.5fr 100px 140px 120px 70px 70px;
+  grid-template-columns:
+    minmax(160px, 2fr)
+    minmax(120px, 1fr)
+    minmax(120px, 2fr)
+    minmax(140px, 1fr)
+    80px
+    80px;
+
   gap: 12px;
   align-items: center;
-  padding: 14px 14px;
+  padding: 14px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--card);
@@ -886,14 +895,38 @@ button.iconButton:hover {
 
 .materialEditRow input,
 .materialEditRow select {
+  width: 100%;
+  box-sizing: border-box;
   margin: 0;
   font-size: 0.85rem;
   padding: 8px 10px;
 }
 
 .materialEditRow button {
+  width: 100%;
+  box-sizing: border-box;
   padding: 6px 12px;
   font-size: 0.85rem;
+  height: 36px;
+}
+
+.customUnitField {
+  display: flex;
+  gap: 4px;
+  align-items: stretch;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.customUnitField input {
+  flex: 1;
+  min-width: 0;
+}
+
+.customUnitField button {
+  width: 40px;
+  flex-shrink: 0;
+  padding: 0;
   height: 36px;
 }
 
@@ -901,7 +934,6 @@ button.iconButton:hover {
   background: rgba(163, 85, 85, 0.08) !important;
   border-color: var(--danger) !important;
 }
-
 /* ===== Movement Table ===== */
 
 .movementTable {
@@ -1280,6 +1312,15 @@ button.iconButton:hover {
   .tabs button {
     padding: 10px 14px;
     font-size: 0.85rem;
+  }
+
+  .materialEditRow {
+    grid-template-columns: 1fr;
+  }
+
+  .materialEditRow button {
+    height: auto;
+    padding: 10px 12px;
   }
 }
 
