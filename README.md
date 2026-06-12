@@ -77,6 +77,7 @@
    - [`db/migrations/20260523100000_user_phone_profile.sql`](db/migrations/20260523100000_user_phone_profile.sql)
    - [`db/migrations/20260524100000_orders_and_vendor_settings.sql`](db/migrations/20260524100000_orders_and_vendor_settings.sql)
    - [`db/migrations/20260525100000_rename_email_to_username.sql`](db/migrations/20260525100000_rename_email_to_username.sql)
+   - [`20260526140000_user_tab_preferences.sql`](db/migrations/20260525100000_rename_email_to_username.sql)
 
 ### 4) 設定環境變數
 
