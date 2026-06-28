@@ -1250,15 +1250,14 @@ button.iconButton:hover {
     grid-template-columns: 1fr;
   }
 
-  .dashboardHeader {
-  flex-direction: column;
-  gap: 16px;
-  padding: 20px 16px;
-
-  /* 新增 */
-  margin-left: 0;
-  width: 100%;
-}
+  .dashboardHeader,
+  .dashboardHeader.withSidebar {
+    flex-direction: column;
+    gap: 16px;
+    padding: 20px 16px;
+    margin-left: 0;
+    width: 100%;
+  }
 
   .drawerPanel {
     max-width: 100%;
