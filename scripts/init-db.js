@@ -6,6 +6,12 @@ config({ path: ".env.local" });
 
 const { query } = await import("../lib/db.js");
 
+export async function resetTransactionalData() {
+  await query(
+    "TRUNCATE material_movements, order_items, orders RESTART IDENTITY CASCADE"
+  );
+}
+
 export async function seedData() {
   const existingVendor = await query("SELECT id FROM users WHERE username = $1", [
     "vendor@example.com"
@@ -232,7 +238,14 @@ export async function seedData() {
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  seedData()
+  const shouldReset = process.argv.includes("--reset");
+  (async () => {
+    if (shouldReset) {
+      await resetTransactionalData();
+      console.log("Transactional data cleared (orders, order_items, material_movements reset).");
+    }
+    await seedData();
+  })()
     .then(() => {
       console.log("Seed data applied.");
       process.exit(0);

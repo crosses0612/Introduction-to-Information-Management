@@ -12,10 +12,31 @@ export async function PUT(request, context) {
 
     const { id } = await context.params;
 
+    let customPrices = {};
+    try {
+      const body = await request.json();
+      if (body && body.customPrices && typeof body.customPrices === "object") {
+        customPrices = body.customPrices;
+      }
+    } catch {
+      // 無 body 時維持原價
+    }
+
     const { order, lowStockMaterials } = await withTransaction(async (client) => {
       const current = await client.query("SELECT * FROM orders WHERE id = $1", [id]);
       if (!current.rows.length) throw new Error("Order not found");
       if (current.rows[0].status !== "pending") throw new Error("僅能確認待處理訂單");
+
+      for (const [productId, price] of Object.entries(customPrices)) {
+        const numericPrice = Number(price);
+        if (!Number.isFinite(numericPrice) || numericPrice < 0) {
+          throw new Error("折價後單價不可為負數或無效");
+        }
+        await client.query(
+          "UPDATE order_items SET unit_price = $1 WHERE order_id = $2 AND product_id = $3",
+          [numericPrice, id, productId]
+        );
+      }
 
       await deductStockForOrder(client, id, user.sub);
 

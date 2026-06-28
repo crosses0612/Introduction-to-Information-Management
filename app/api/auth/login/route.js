@@ -13,7 +13,7 @@ export async function POST(request) {
 
     const loginName = String(username).trim();
     const result = await query(
-      "SELECT id, name, username, role, phone, password_hash FROM users WHERE username = $1",
+      "SELECT id, name, username, role, phone, password_hash, cust_tabs_order, vend_tabs_order, material_sub_tabs_order FROM users WHERE username = $1",
       [loginName]
     );
     const user = result.rows[0];
@@ -26,7 +26,10 @@ export async function POST(request) {
       name: user.name,
       username: user.username,
       role: user.role,
-      phone: user.phone ?? null
+      phone: user.phone ?? null,
+      cust_tabs_order: user.cust_tabs_order ?? null,
+      vend_tabs_order: user.vend_tabs_order ?? null,
+      material_sub_tabs_order: user.material_sub_tabs_order ?? null
     };
     return NextResponse.json({ token: signToken(safeUser), user: safeUser });
   } catch (error) {

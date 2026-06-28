@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/client/api";
-import { nonNegativeFromInput, nonNegativeStringFromInput } from "@/lib/numbers";
+import { nonNegativeFromInput, nonNegativeStringFromInput, decimalStringFromInput } from "@/lib/numbers";
+import { convertUnit, canConvertUnit } from "@/lib/units";
 import { useActionFeedback } from "@/lib/client/useActionFeedback";
 import FeedbackModal from "@/components/FeedbackModal";
 import ProfileForm from "@/components/ProfileForm";
@@ -43,8 +44,27 @@ export default function App() {
   const [movements, setMovements] = useState([]);
   const [consumptionStats, setConsumptionStats] = useState([]);
   const [vendorHistoryTab, setVendorHistoryTab] = useState("confirmed");
-  // App 組件內部
-  const [unitList, setUnitList] = useState(DEFAULT_UNITS);
+  // 自訂單位以 DB（vendor_settings.custom_units）為準，搭配預設單位與既有原料單位合併
+  const [customUnits, setCustomUnits] = useState([]);
+  const unitList = useMemo(
+    () => [
+      ...new Set([
+        ...DEFAULT_UNITS,
+        ...customUnits,
+        ...materials.map((m) => m.unit).filter(Boolean)
+      ])
+    ],
+    [customUnits, materials]
+  );
+
+  // 新增自訂單位時同步到 DB，確保重新整理或換瀏覽器後仍存在
+  function persistCustomUnit(unit) {
+    const trimmed = String(unit || "").trim();
+    if (!trimmed || unitList.includes(trimmed)) return;
+    const nextCustomUnits = [...new Set([...customUnits, trimmed])];
+    setCustomUnits(nextCustomUnits);
+    api.updateVendorSettings({ customUnits: nextCustomUnits }).catch(() => {});
+  }
 
   const [isCustomUnit, setIsCustomUnit] = useState(false); 
   const [customUnitInput, setCustomUnitInput] = useState("");
@@ -82,20 +102,6 @@ export default function App() {
     return raw ? JSON.parse(raw) : defaultTabs;
   });
 
-  const [clearedExpiredIds, setClearedExpiredIds] = useState(() => {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("cleared_expired_ids");
-      return raw ? JSON.parse(raw) : [];
-    }
-    return [];
-  });
-
-  useEffect(() => {
-    localStorage.setItem("cleared_expired_ids", JSON.stringify(clearedExpiredIds));
-  }, [clearedExpiredIds]);
-
-
-
   const [draggedMainTabIdx, setDraggedMainTabIdx] = useState(null);
 
   const [materialSubTabs, setMaterialSubTabs] = useState(() => {
@@ -128,36 +134,15 @@ export default function App() {
     }
   }, [user?.id]);
 
-  // 當 tabs 狀態變動時自動同步到後端
-  useEffect(() => {
-    if (!user) return;
-    if (user.role === "customer") {
-      // 更新 localStorage（不 setUser，避免觸發初始化 effect）
-      try {
-        const next = { ...user, cust_tabs_order: custTabs };
-        localStorage.setItem("user", JSON.stringify(next));
-      } catch {}
-      api.updateProfile({ cust_tabs_order: custTabs }).catch(() => {});
-    }
-  }, [custTabs]);
-  useEffect(() => {
-    if (!user) return;
-    if (user.role === "vendor") {
-      try {
-        const next = { ...user, vend_tabs_order: vendTabs };
-        localStorage.setItem("user", JSON.stringify(next));
-      } catch {}
-      api.updateProfile({ vend_tabs_order: vendTabs }).catch(() => {});
-    }
-  }, [vendTabs]);
-  useEffect(() => {
+  // 僅在使用者實際拖曳調整順序後才同步到後端，避免初次載入時以預設值覆寫 DB 的既有偏好
+  function persistTabsOrder(patch) {
     if (!user) return;
     try {
-      const next = { ...user, material_sub_tabs_order: materialSubTabs };
+      const next = { ...user, ...patch };
       localStorage.setItem("user", JSON.stringify(next));
     } catch {}
-    api.updateProfile({ material_sub_tabs_order: materialSubTabs }).catch(() => {});
-  }, [materialSubTabs]);
+    api.updateProfile(patch).catch(() => {});
+  }
 
   const [vendorAlertDays, setVendorAlertDays] = useState(3);
   const [customerAlertDays, setCustomerAlertDays] = useState(3);
@@ -314,6 +299,14 @@ export default function App() {
     [materials]
   );
 
+  useEffect(() => {
+    if (!isVendor) return;
+    api
+      .getVendorSettings()
+      .then((s) => setCustomUnits(Array.isArray(s.customUnits) ? s.customUnits : []))
+      .catch(() => {});
+  }, [isVendor]);
+
   function handleUserUpdate(updatedUser, token) {
     localStorage.setItem("token", token);
     localStorage.setItem("user", JSON.stringify(updatedUser));
@@ -424,11 +417,11 @@ export default function App() {
         unit: materialForm.unit,
         lowStockThreshold: nonNegativeFromInput(materialForm.lowStockThreshold, 10)
       });
+      if (isCustomUnit && customUnitInput.trim()) {
+        persistCustomUnit(customUnitInput.trim());
+      }
       setMaterialForm(emptyMaterial);
       await refreshCoreData();
-      if (isCustomUnit && customUnitInput.trim() && !unitList.includes(customUnitInput.trim())) {
-        setUnitList([...unitList, customUnitInput.trim()]);
-      }
       setIsCustomUnit(false);
       setCustomUnitInput("");
     }, { successMessage: "原料已新增" });
@@ -443,16 +436,19 @@ export default function App() {
         description: productEditForm.description,
         price: Number(productEditForm.price),
       });
-      await api.updateRecipe(productId, productEditForm.recipe);
+      const sanitizedRecipe = productEditForm.recipe
+        .map((r) => ({ ...r, ratio: Number(r.ratio ?? r.usageKg), usageKg: Number(r.ratio ?? r.usageKg) }))
+        .filter((r) => Number.isFinite(r.ratio) && r.ratio > 0);
+      await api.updateRecipe(productId, sanitizedRecipe);
       setEditingProductId(null);
       await refreshCoreData();
     }, { successMessage: "商品與配方已同步更新" });
   }
 
-  async function confirmOrder(id) {
+  async function confirmOrder(id, payload) {
     await runActionNoScroll(
       async () => {
-        const result = await api.confirmOrder(id);
+        const result = await api.confirmOrder(id, payload);
         await refreshCoreData();
         if (isVendor) {
         const history = await api.getVendorOrders("history");
@@ -486,20 +482,39 @@ export default function App() {
   async function saveMaterial(id) {
     const edit = materialEdits[id];
     if (!edit) return;
+    const material = materials.find((m) => Number(m.id) === Number(id));
+    const oldUnit = material?.unit;
+    const newUnit = edit.unit;
+
+    // 變更單位時，若新舊單位可換算則自動換算庫存數值（如 1 公斤 → 1000 公克）
+    let stockValue = nonNegativeFromInput(edit.stock);
+    let conversionNote = "";
+    if (material && oldUnit && newUnit && oldUnit !== newUnit) {
+      if (canConvertUnit(oldUnit, newUnit)) {
+        const converted = convertUnit(nonNegativeFromInput(material.stock), oldUnit, newUnit);
+        if (converted != null) {
+          stockValue = converted;
+          conversionNote = `（庫存已由 ${material.stock} ${oldUnit} 自動換算為 ${converted} ${newUnit}）`;
+        }
+      } else {
+        conversionNote = `（${oldUnit} 與 ${newUnit} 非同類單位，庫存數值維持不變，請自行確認）`;
+      }
+    }
+
     await runActionNoScroll(async () => {
       await api.updateMaterial(id, {
         name: edit.name,
-        stock: nonNegativeFromInput(edit.stock),
-        unit: edit.unit,
+        stock: stockValue,
+        unit: newUnit,
         lowStockThreshold: nonNegativeFromInput(edit.low_stock_threshold, 10)
       });
       await refreshCoreData();
-      if (editCustomUnitInput.trim() && !unitList.includes(editCustomUnitInput.trim())) {
-        setUnitList([...unitList, editCustomUnitInput.trim()]);
+      if (editCustomUnitInput.trim()) {
+        persistCustomUnit(editCustomUnitInput.trim());
       }
       setEditingCustomUnitId(null);
       setEditCustomUnitInput("");
-    }, { successMessage: "原料已更新" });
+    }, { successMessage: `原料已更新${conversionNote}` });
   }
 
   async function submitInbound(e) {
@@ -576,9 +591,12 @@ export default function App() {
     }
 
     await runActionNoScroll(async () => {
-      setClearedExpiredIds(prev => [...new Set([...prev, ...expiredIds])]);
-      await Promise.all(expiredIds.map(id => api.cancelOrder(id))); 
+      await Promise.all(expiredIds.map(id => api.cancelOrder(id)));
       await refreshCoreData();
+      if (isVendor) {
+        const history = await api.getVendorOrders("history");
+        setHistoryOrders(history);
+      }
     }, { successMessage: "所有過期訂單已成功清除！" });
   }
 
@@ -666,6 +684,16 @@ export default function App() {
       return deliveryTime && new Date(deliveryTime) < now;
     }).length;
   }, [isVendor, historyOrders]);
+
+  const customerExpiredCount = useMemo(() => {
+    if (!isCustomer) return 0;
+    const now = new Date();
+    return orders.filter((o) => {
+      if (o.status !== "confirmed") return false;
+      const deliveryTime = o.delivery_at ?? o.deliveryAt ?? o.delivery_date;
+      return deliveryTime && new Date(deliveryTime) < now;
+    }).length;
+  }, [isCustomer, orders]);
 
   return (
     <div className="page dashboardShell">
@@ -799,7 +827,11 @@ export default function App() {
                         setDraggedMainTabIdx(idx);
                         setTabs(updatedTabs);
                       }}
-                      onDragEnd={() => setDraggedMainTabIdx(null)}
+                      onDragEnd={() => {
+                        setDraggedMainTabIdx(null);
+                        if (isCustomer) persistTabsOrder({ cust_tabs_order: tabs });
+                        else if (isVendor) persistTabsOrder({ vend_tabs_order: tabs });
+                      }}
                     >
                       <span>{label}</span>
                       {badgeCount > 0 && <span className="sidebarBadge">{badgeCount}</span>}
@@ -846,7 +878,6 @@ export default function App() {
               orders={orders}
               isSubmitting={isSubmitting}
               onCancel={cancelOrder}
-              clearedExpiredIds={clearedExpiredIds}
             />
           )}
 
@@ -1034,18 +1065,21 @@ export default function App() {
                               <span>{m.name} ({m.unit})</span>
                               <input
                                 type="number"
+                                min="0"
+                                step="any"
                                 value={inputValue}
                                 placeholder="用量"
                                 onChange={(e) => {
-                                  const val = e.target.value;
+                                  const val = decimalStringFromInput(e.target.value);
                                   const otherRecipeItems = productEditForm.recipe.filter((r) => Number(r.materialId) !== Number(m.id));
                                   let nextRecipe = [...otherRecipeItems];
-                                  if (val !== "" && Number(val) > 0) {
+                                  if (val !== "") {
+                                    // 保留輸入中的小數字串（如 "0."），送出時才轉為數字
                                     nextRecipe.push({
                                       materialId: Number(m.id),
                                       materialName: m.name,
-                                      ratio: Number(val),
-                                      usageKg: Number(val),
+                                      ratio: val,
+                                      usageKg: val,
                                     });
                                   }
                                   setProductEditForm({ ...productEditForm, recipe: nextRecipe });
@@ -1103,7 +1137,10 @@ export default function App() {
                       setDraggedTabIdx(idx);
                       setMaterialSubTabs(updatedTabs);
                     }}
-                    onDragEnd={() => setDraggedTabIdx(null)}
+                    onDragEnd={() => {
+                      setDraggedTabIdx(null);
+                      persistTabsOrder({ material_sub_tabs_order: materialSubTabs });
+                    }}
                   >
                     {subTab.label}
                   </button>
@@ -1123,10 +1160,10 @@ export default function App() {
                     <input
                     type="number"
                     min="0"
-                    step="1"
+                    step="any"
                     value={materialForm.stock}
                     onChange={(e) =>
-                      setMaterialForm({ ...materialForm, stock: e.target.value === "" ? "" : nonNegativeFromInput(e.target.value) })
+                      setMaterialForm({ ...materialForm, stock: decimalStringFromInput(e.target.value) })
                     }
                     disabled={isSubmitting}
                   />
@@ -1381,11 +1418,11 @@ export default function App() {
                   <input
                     type="number"
                     min="0"
-                    step="0.01"
+                    step="any"
                     placeholder="進貨數量"
                     value={inboundForm.quantity}
                     onChange={(e) =>
-                      setInboundForm({ ...inboundForm, quantity: nonNegativeStringFromInput(e.target.value) })
+                      setInboundForm({ ...inboundForm, quantity: decimalStringFromInput(e.target.value) })
                     }
                     disabled={isSubmitting}
                   />
@@ -1461,17 +1498,9 @@ export default function App() {
                   <OrderCard
                     key={o.id}
                     order={o}
-                    actions={
-                      <>
-                        <button type="button" onClick={() => confirmOrder(o.id)} disabled={isSubmitting}>
-                          確認接單
-                        </button>
-                        <button type="button" onClick={() => cancelOrder(o.id)} disabled={isSubmitting}>
-                          取消訂單
-                        </button>
-                      </>
-                    }
-
+                    onConfirm={confirmOrder}
+                    onCancel={cancelOrder}
+                    isSubmitting={isSubmitting}
                   />
                 ))
               )}
@@ -1734,7 +1763,18 @@ export default function App() {
 
                 {isCustomer && (
                   <>
-                    {pendingAlert.warning && !hideCycleAlert && (
+                    {customerExpiredCount > 0 && (
+                      <div className="notice-item-red">
+                        <div className="notice-item-red-header">
+                          <span>逾期訂單提醒：</span>
+                        </div>
+                        <div style={{ fontSize: "0.85rem", lineHeight: "1.6", color: "#262626" }}>
+                          您有 <strong style={{ color: "var(--danger)" }}>{customerExpiredCount}</strong> 筆已確認訂單<strong>已超過交貨時間</strong>，如有疑問請洽店家。
+                        </div>
+                      </div>
+                    )}
+
+                    {pendingAlert.warning && !hidePendingAlert && (
                       <div className="notice-item-yellow">
                         <span className="notice-item-yellow-text">
                           <strong>待確認訂單偏高：</strong>
@@ -1744,7 +1784,7 @@ export default function App() {
                         <button
                           type="button"
                           className="notice-item-dismiss"
-                          onClick={() => setHideCycleAlert(true)}
+                          onClick={() => setHidePendingAlert(true)}
                         >
                           ✖
                         </button>
@@ -1762,7 +1802,7 @@ export default function App() {
               title="開啟通知中心"
             >
               {((isVendor && (lowStockMaterials.length > 0 || (pendingAlert.warning && !hidePendingAlert) || nearestOrderNotice || expiredConfirmedCount > 0)) || 
-                (isCustomer && (nearestOrderNotice || (pendingAlert.warning && !hidePendingAlert)))) && (
+                (isCustomer && (nearestOrderNotice || customerExpiredCount > 0 || (pendingAlert.warning && !hidePendingAlert)))) && (
                 <span className="notice-badge-dot" />
               )}
             </button>

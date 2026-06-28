@@ -85,30 +85,15 @@ export default function RemindersList({ reminders, products, showCustomer = fals
             const itemsSubtotal = r.items?.reduce((sum, item) => {
               const targetProductId = item.productId ?? item.product_id;
               const matchedProduct = products?.find(p => Number(p.id) === Number(targetProductId));
-              
-              // 補上：如果是被客製化過，優先從全域快取取用該項單價
-              let itemPrice = Number(matchedProduct?.price ?? item.price ?? item.productPrice ?? item.unitPrice ?? 0);
-              if (typeof window !== "undefined") {
-                const cached = localStorage.getItem(`custom_price_order_${r.id}`);
-                if (cached) {
-                  const savedPrices = JSON.parse(cached).prices;
-                  if (savedPrices[item.productId ?? item.product_id] !== undefined) {
-                    itemPrice = savedPrices[item.productId ?? item.product_id];
-                  }
-                }
-              }
+
+              // 優先採用訂單明細上的單價（已含確認時的折後價），其次才是商品定價
+              const itemPrice = Number(item.unitPrice ?? item.price ?? item.productPrice ?? matchedProduct?.price ?? 0);
               const itemQuantity = Number(item.quantity || 0);
               return sum + (itemPrice * itemQuantity);
             }, 0) ?? 0;
 
             const backendTotal = r.total_amount ?? r.total_price ?? r.totalPrice ?? r.totalAmount ?? 0;
-            
-            // ✨ 如果快取裡有新總價，優先顯示新總價；否則遵循你原本的 backendTotal : itemsSubtotal
-            let finalTotal = backendTotal > 0 ? backendTotal : itemsSubtotal;
-            if (typeof window !== "undefined") {
-              const cached = localStorage.getItem(`custom_price_order_${r.id}`);
-              if (cached) finalTotal = JSON.parse(cached).total;
-            }
+            const finalTotal = backendTotal > 0 ? backendTotal : itemsSubtotal;
 
             const deliveryTime = r.delivery_at ?? r.deliveryAt ?? r.delivery_date;
             let isUrgent = false;
@@ -165,18 +150,9 @@ export default function RemindersList({ reminders, products, showCustomer = fals
                         {r.items.map((item, i) => {
                           const targetProductId = item.productId ?? item.product_id;
                           const matchedProduct = products?.find(p => Number(p.id) === Number(targetProductId));
-                          
-                          // 優先從客製化快取抽取單價
-                          let itemPrice = Number(matchedProduct?.price ?? item.price ?? item.productPrice ?? item.unitPrice ?? 0);
-                          if (typeof window !== "undefined") {
-                            const cached = localStorage.getItem(`custom_price_order_${r.id}`);
-                            if (cached) {
-                              const savedPrices = JSON.parse(cached).prices;
-                              if (savedPrices[item.productId ?? item.product_id] !== undefined) {
-                                itemPrice = savedPrices[item.productId ?? item.product_id];
-                              }
-                            }
-                          }
+
+                          // 優先採用訂單明細上的單價（已含確認時的折後價）
+                          const itemPrice = Number(item.unitPrice ?? item.price ?? item.productPrice ?? matchedProduct?.price ?? 0);
                           const itemQuantity = Number(item.quantity || 0);
 
                           return (

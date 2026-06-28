@@ -2,7 +2,7 @@ import { useState } from "react";
 import OrderCard from "./OrderCard";
 
 // ✨ 核心修正：在解構參數中正式補上 onCancel，徹底解決 onCancel is not defined 崩潰！
-export default function CustomerOrders({ orders, isSubmitting, clearedExpiredIds, onCancel }) {
+export default function CustomerOrders({ orders, isSubmitting, onCancel }) {
   const [activeSubTab, setActiveSubTab] = useState("pending");
   const now = new Date();
 

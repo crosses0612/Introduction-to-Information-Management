@@ -107,6 +107,12 @@ npm run init-db
 
 會建立測試帳號、商品與原料資料（若已存在則跳過）。
 
+若需清空既有訂單並重置訂單編號（`orders`、`order_items`、`material_movements` 會被清空且流水號歸 1），可加上 `--reset`：
+
+```bash
+npm run init-db -- --reset
+```
+
 ## 啟動方式
 
 ### 開發模式（預設 `http://localhost:3000`）
